@@ -3,21 +3,33 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --aos-border:       rgba(245, 242, 237, 0.06);
+  --aos-border-strong:rgba(245, 242, 237, 0.12);
+  --aos-glass:        rgba(28, 28, 34, 0.7);
+  --aos-accent-soft:  rgba(61, 184, 122, 0.12);
+  --aos-gold-soft:    rgba(212, 165, 116, 0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    background-color: #0A0A0C;
+    color: #F5F2ED;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-}
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    background-color: #0A0A0C;
+    color: #F5F2ED;
+    font-family: var(--font-jakarta), system-ui, sans-serif;
+    /* Prevent flash of light background */
+    min-height: 100dvh;
+  }
+
+  /* Tabular numerals for mono */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 @layer utilities {

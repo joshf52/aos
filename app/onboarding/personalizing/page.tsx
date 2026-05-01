@@ -1,8 +1,33 @@
-// Placeholder — Phase 2: the constellation reveal
-export default function PersonalizingPage() {
+import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { PersonalizingContent } from "./personalizing-content";
+
+export default async function PersonalizingPage() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
+
+  const { data: profile } = (await supabase
+    .from("profiles")
+    .select("build_mode, domains, audience, commitment_level")
+    .eq("id", user.id)
+    .single()) as unknown as {
+    data: {
+      build_mode: string | null;
+      domains: string[] | null;
+      audience: string | null;
+      commitment_level: string | null;
+    } | null;
+  };
+
   return (
-    <main className="min-h-dvh bg-black flex items-center justify-center">
-      <p className="font-serif text-aos-gold italic">Building your taste profile…</p>
-    </main>
+    <PersonalizingContent
+      buildMode={(profile?.build_mode as "self" | "ai") ?? null}
+      domains={profile?.domains ?? []}
+      audience={profile?.audience ?? null}
+      commitmentLevel={profile?.commitment_level ?? null}
+    />
   );
 }

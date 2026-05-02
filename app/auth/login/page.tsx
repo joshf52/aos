@@ -70,39 +70,38 @@ function LoginForm() {
 
   return (
     <main className="min-h-dvh bg-aos-bg relative flex flex-col overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <motion.div
-          animate={{ x: [0, 40, -20, 0], y: [0, -30, 20, 0] }}
-          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-[10%] left-[20%] w-80 h-80"
-          style={{
-            background: "radial-gradient(circle, rgba(61,184,122,0.15) 0%, transparent 60%)",
-            filter: "blur(40px)",
-          }}
+      {/* Grain */}
+      <div aria-hidden className="absolute inset-0 z-0 pointer-events-none"
+        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`, opacity: 0.028 }}
+      />
+      {/* Blobs */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <motion.div animate={{ x: [0, 50, -30, 0], y: [0, -40, 20, 0] }} transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute -top-20 -left-10 w-[420px] h-[420px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(61,184,122,0.16) 0%, transparent 60%)", filter: "blur(60px)" }}
         />
-        <motion.div
-          animate={{ x: [0, -30, 40, 0], y: [0, 40, -10, 0] }}
-          transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-[40%] right-0 w-72 h-72"
-          style={{
-            background: "radial-gradient(circle, rgba(212,165,116,0.10) 0%, transparent 60%)",
-            filter: "blur(40px)",
-          }}
+        <motion.div animate={{ x: [0, -30, 40, 0], y: [0, 50, -10, 0] }} transition={{ duration: 24, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute bottom-0 -right-10 w-[360px] h-[360px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(212,165,116,0.14) 0%, transparent 60%)", filter: "blur(60px)" }}
+        />
+        <motion.div animate={{ x: [0, 30, -20, 0], y: [0, -30, 50, 0] }} transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute top-[30%] right-[10%] w-[220px] h-[220px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(61,184,122,0.08) 0%, transparent 60%)", filter: "blur(40px)" }}
         />
       </div>
 
-      <div className="relative z-10 flex flex-col flex-1 px-6 pt-20 pb-10 max-w-sm mx-auto w-full">
+      <div className="relative z-10 flex flex-col flex-1 px-6 pt-16 pb-10 max-w-sm mx-auto w-full">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ...spring }}
         >
-          <a href="/" className="inline-block">
-            <div className="font-serif text-4xl text-aos-text tracking-[-0.04em] leading-none">
+          <a href="/" className="inline-block group">
+            <div className="font-serif text-[52px] text-aos-text tracking-[-0.05em] leading-none transition-opacity group-hover:opacity-80">
               AOS
             </div>
           </a>
-          <div className="font-serif text-xl text-aos-secondary italic mt-1.5 tracking-[-0.01em]">
+          <div className="font-serif italic mt-1 tracking-[-0.01em]" style={{ fontSize: 17, color: "#D4A574" }}>
             Build with conviction.
           </div>
         </motion.div>

@@ -82,19 +82,37 @@ export function OpportunityContent({
       <div className="pb-[120px]">
         {/* Hero */}
         <div
-          className="h-[320px] flex items-end px-6 pb-7"
+          className="relative flex items-end px-6 pb-8 overflow-hidden"
           style={{
+            minHeight: 380,
             background: `
-              radial-gradient(circle at 30% 30%, rgba(212, 165, 116, 0.18) 0%, transparent 60%),
-              radial-gradient(circle at 70% 70%, rgba(61, 184, 122, 0.12) 0%, transparent 60%),
+              radial-gradient(ellipse 80% 60% at 20% 20%, rgba(212,165,116,0.22) 0%, transparent 55%),
+              radial-gradient(ellipse 60% 50% at 80% 80%, rgba(61,184,122,0.14) 0%, transparent 55%),
+              radial-gradient(ellipse 50% 40% at 60% 10%, rgba(212,165,116,0.08) 0%, transparent 50%),
               #0A0A0C
             `,
           }}
         >
+          {/* Dot grid overlay in hero */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: "radial-gradient(circle, rgba(245,242,237,0.12) 1px, transparent 1px)",
+              backgroundSize: "28px 28px",
+              maskImage: "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.3) 40%, transparent 100%)",
+              WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.3) 40%, transparent 100%)",
+            }}
+          />
+          {/* Bottom fade */}
+          <div
+            className="absolute bottom-0 left-0 right-0 h-32 pointer-events-none"
+            style={{ background: "linear-gradient(to bottom, transparent, #0A0A0C)" }}
+          />
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ...spring }}
+            className="relative z-10 w-full"
           >
             <div className="flex items-center gap-2.5 mb-3.5">
               <div
@@ -108,7 +126,10 @@ export function OpportunityContent({
               </div>
               <ConfidenceDots count={opportunity.confidence} />
             </div>
-            <h1 className="font-serif text-[36px] text-aos-text tracking-[-0.03em] leading-[1.05]">
+            <h1
+              className="font-serif text-aos-text leading-[1.05]"
+              style={{ fontSize: "clamp(32px, 8vw, 44px)", letterSpacing: "-0.03em" }}
+            >
               {opportunity.title}
             </h1>
           </motion.div>

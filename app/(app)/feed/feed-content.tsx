@@ -62,59 +62,80 @@ export function FeedContent({
           >
             <Link href={`/opportunity/${featured.slug}`}>
               <div
-                className="rounded-3xl p-[22px] relative overflow-hidden cursor-pointer active:scale-[0.99] transition-transform duration-150"
+                className="rounded-[28px] relative overflow-hidden cursor-pointer active:scale-[0.99] transition-transform duration-150"
                 style={{
-                  background: "linear-gradient(135deg, #1C1C22 0%, #15151A 100%)",
-                  border: "1px solid var(--aos-border)",
+                  background: "linear-gradient(160deg, #1E1E26 0%, #15151A 60%, #12121A 100%)",
+                  border: "1px solid rgba(245,242,237,0.08)",
+                  boxShadow: "0 0 0 1px rgba(212,165,116,0.04), 0 24px 48px rgba(0,0,0,0.4)",
                 }}
               >
-                {/* Gold glow corner */}
+                {/* Gold atmospheric glow — top right */}
                 <div
-                  className="absolute top-0 right-0 w-48 h-48 pointer-events-none"
+                  className="absolute -top-10 -right-10 w-64 h-64 pointer-events-none"
                   style={{
-                    background:
-                      "radial-gradient(circle at 100% 0%, rgba(212,165,116,0.08) 0%, transparent 70%)",
+                    background: "radial-gradient(circle, rgba(212,165,116,0.14) 0%, transparent 65%)",
+                    filter: "blur(20px)",
+                  }}
+                />
+                {/* Green atmospheric glow — bottom left */}
+                <div
+                  className="absolute -bottom-8 -left-8 w-48 h-48 pointer-events-none"
+                  style={{
+                    background: "radial-gradient(circle, rgba(61,184,122,0.08) 0%, transparent 65%)",
+                    filter: "blur(20px)",
+                  }}
+                />
+                {/* Subtle dot grid */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    backgroundImage: "radial-gradient(circle, rgba(245,242,237,0.08) 1px, transparent 1px)",
+                    backgroundSize: "24px 24px",
+                    maskImage: "radial-gradient(ellipse at 70% 30%, black 10%, transparent 65%)",
+                    WebkitMaskImage: "radial-gradient(ellipse at 70% 30%, black 10%, transparent 65%)",
                   }}
                 />
 
-                {/* Badge + confidence */}
-                <div className="flex items-start justify-between mb-4 relative">
-                  <div
-                    className="inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-full text-[11px] font-medium tracking-[0.04em]"
-                    style={{
-                      background: "var(--aos-gold-soft)",
-                      color: "#D4A574",
-                    }}
-                  >
-                    <Sparkles size={11} strokeWidth={2} />
-                    Featured
+                <div className="relative p-6">
+                  {/* Badge + confidence */}
+                  <div className="flex items-start justify-between mb-5">
+                    <div
+                      className="inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-full text-[10px] font-medium tracking-[0.06em] uppercase"
+                      style={{ background: "rgba(212,165,116,0.1)", color: "#D4A574", border: "1px solid rgba(212,165,116,0.18)" }}
+                    >
+                      <Sparkles size={10} strokeWidth={2} />
+                      Featured
+                    </div>
+                    <ConfidenceDots count={featured.confidence} />
                   </div>
-                  <ConfidenceDots count={featured.confidence} />
-                </div>
 
-                {/* Category */}
-                <div className="text-[11px] text-aos-tertiary uppercase tracking-[0.12em] font-medium mb-2">
-                  {featured.capability}
-                </div>
+                  {/* Category */}
+                  <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.14em] font-medium mb-2.5">
+                    {featured.capability}
+                  </div>
 
-                {/* Title */}
-                <h2 className="font-serif text-[26px] text-aos-text tracking-[-0.02em] leading-[1.15] mb-3.5">
-                  {featured.title}
-                </h2>
+                  {/* Title */}
+                  <h2
+                    className="font-serif text-aos-text leading-[1.12]"
+                    style={{ fontSize: "clamp(24px, 6.5vw, 30px)", letterSpacing: "-0.025em", marginBottom: 14 }}
+                  >
+                    {featured.title}
+                  </h2>
 
-                {/* Gap */}
-                <p className="text-sm text-aos-secondary leading-[1.55] mb-5">
-                  {featured.gap}
-                </p>
+                  {/* Gap */}
+                  <p className="text-[13px] leading-[1.6] mb-6" style={{ color: "#8A8580" }}>
+                    {featured.gap}
+                  </p>
 
-                {/* Footer */}
-                <div
-                  className="flex items-center justify-between pt-4"
-                  style={{ borderTop: "1px solid var(--aos-border)" }}
-                >
-                  <PresenceDots count={featured.builder_count} />
-                  <div className="flex items-center gap-1 text-[13px] font-medium text-aos-text">
-                    Explore <ArrowRight size={14} strokeWidth={2} />
+                  {/* Footer */}
+                  <div
+                    className="flex items-center justify-between pt-4"
+                    style={{ borderTop: "1px solid rgba(245,242,237,0.07)" }}
+                  >
+                    <PresenceDots count={featured.builder_count} />
+                    <div className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: "#F5F2ED" }}>
+                      Explore <ArrowRight size={13} strokeWidth={2.5} />
+                    </div>
                   </div>
                 </div>
               </div>

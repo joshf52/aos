@@ -58,19 +58,32 @@ export default async function OpportunityPage({
   if (!opportunity) redirect("/feed");
 
   let buildMode: "self" | "ai" = "self";
+  let activeCommitmentId: string | null = null;
+
   if (user) {
-    const { data: profile } = (await supabase
-      .from("profiles")
-      .select("build_mode")
-      .eq("id", user.id)
-      .single()) as unknown as { data: { build_mode: string | null } | null };
+    const [{ data: profile }, { data: existing }] = await Promise.all([
+      (supabase
+        .from("profiles")
+        .select("build_mode")
+        .eq("id", user.id)
+        .single()) as unknown as Promise<{ data: { build_mode: string | null } | null }>,
+      (supabase
+        .from("commitments")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("opportunity_id", opportunity.id)
+        .eq("status", "active")
+        .limit(1)) as unknown as Promise<{ data: { id: string }[] | null }>,
+    ]);
     if (profile?.build_mode === "ai") buildMode = "ai";
+    activeCommitmentId = existing?.[0]?.id ?? null;
   }
 
   return (
     <OpportunityContent
       opportunity={opportunity}
       buildMode={buildMode}
+      activeCommitmentId={activeCommitmentId}
       startEvaluation={startEvaluation}
     />
   );

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, Bookmark, Activity } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bookmark, Activity, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Opportunity } from "@/types/database";
 
@@ -11,10 +12,12 @@ const spring = { ease: [0.22, 1, 0.36, 1] as const };
 export function OpportunityContent({
   opportunity,
   buildMode,
+  activeCommitmentId,
   startEvaluation,
 }: {
   opportunity: Opportunity;
   buildMode: "self" | "ai";
+  activeCommitmentId: string | null;
   startEvaluation: (formData: FormData) => Promise<void>;
 }) {
   const [scrolled, setScrolled] = useState(false);
@@ -145,18 +148,33 @@ export function OpportunityContent({
             "linear-gradient(to top, #0A0A0C 0%, #0A0A0C 55%, rgba(10,10,12,0) 100%)",
         }}
       >
-        <form action={startEvaluation}>
-          <input type="hidden" name="opportunityId" value={opportunity.id} />
-          <motion.button
-            type="submit"
-            whileTap={{ scale: 0.98 }}
+        {activeCommitmentId ? (
+          <Link
+            href={buildMode === "ai" ? `/commit/${activeCommitmentId}/ai-build` : "/dashboard"}
             className="flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-base font-semibold tracking-[-0.01em] transition-opacity hover:opacity-90"
-            style={{ background: "#F5F2ED", color: "#0A0A0C" }}
+            style={{
+              background: "rgba(61, 184, 122, 0.12)",
+              border: "1px solid rgba(61, 184, 122, 0.35)",
+              color: "#3DB87A",
+            }}
           >
-            {buildMode === "ai" ? "Have AI build this" : "Evaluate this opportunity"}{" "}
-            <ArrowRight size={17} strokeWidth={2.5} />
-          </motion.button>
-        </form>
+            <CheckCircle2 size={17} strokeWidth={2.5} />
+            {buildMode === "ai" ? "View your build" : "View your sprint"}
+          </Link>
+        ) : (
+          <form action={startEvaluation}>
+            <input type="hidden" name="opportunityId" value={opportunity.id} />
+            <motion.button
+              type="submit"
+              whileTap={{ scale: 0.98 }}
+              className="flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-base font-semibold tracking-[-0.01em] transition-opacity hover:opacity-90"
+              style={{ background: "#F5F2ED", color: "#0A0A0C" }}
+            >
+              {buildMode === "ai" ? "Have AI build this" : "Evaluate this opportunity"}{" "}
+              <ArrowRight size={17} strokeWidth={2.5} />
+            </motion.button>
+          </form>
+        )}
       </div>
     </div>
   );

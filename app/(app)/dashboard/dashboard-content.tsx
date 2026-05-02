@@ -25,6 +25,7 @@ export function DashboardContent({
   checkinCount,
   checkinDue,
   startDate,
+  buildMode,
 }: {
   commitmentId: string;
   opportunityTitle: string;
@@ -33,6 +34,7 @@ export function DashboardContent({
   checkinCount: number;
   checkinDue: boolean;
   startDate: string;
+  buildMode: "self" | "ai";
 }) {
   return (
     <main className="min-h-dvh bg-aos-bg">
@@ -45,7 +47,7 @@ export function DashboardContent({
           transition={{ duration: 0.6 }}
           className="text-[12px] text-aos-tertiary uppercase tracking-[0.15em] font-medium"
         >
-          Sprint · Day {daysIn} of 30
+          {buildMode === "ai" ? "Build" : "Sprint"} · Day {daysIn} of 30
         </motion.div>
 
         {/* Title */}
@@ -156,7 +158,7 @@ export function DashboardContent({
             style={{ borderTop: "1px solid var(--aos-border)" }}
           >
             <Stat label="Days in" value={daysIn} />
-            <Stat label="Check-ins" value={`${checkinCount}/4`} />
+            <Stat label={buildMode === "ai" ? "Updates" : "Check-ins"} value={`${checkinCount}/4`} />
             <Stat label="Week" value={currentWeek} />
           </div>
         </motion.div>
@@ -180,11 +182,13 @@ export function DashboardContent({
                 className="text-[11px] uppercase tracking-[0.12em] font-medium"
                 style={{ color: "#D4A574" }}
               >
-                Week {currentWeek} check-in due
+                Week {currentWeek} {buildMode === "ai" ? "update due" : "check-in due"}
               </span>
             </div>
             <div className="font-serif text-[19px] text-aos-text tracking-[-0.01em] leading-[1.3] mb-3.5">
-              What did you ship or learn this week?
+              {buildMode === "ai"
+                ? "What has the AI shipped or learned this week?"
+                : "What did you ship or learn this week?"}
             </div>
             <Link
               href={`/dashboard/checkin/${commitmentId}`}

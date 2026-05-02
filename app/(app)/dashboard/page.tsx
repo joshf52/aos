@@ -35,14 +35,23 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  // Most recent active commitment
-  const { data: commitments } = (await supabase
-    .from("commitments")
-    .select("id, opportunity_id, lens_id, started_at")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("started_at", { ascending: false })
-    .limit(1)) as unknown as { data: CommitmentRow[] | null };
+  // Most recent active commitment + build_mode
+  const [{ data: commitments }, { data: profile }] = await Promise.all([
+    (supabase
+      .from("commitments")
+      .select("id, opportunity_id, lens_id, started_at")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .order("started_at", { ascending: false })
+      .limit(1)) as unknown as Promise<{ data: CommitmentRow[] | null }>,
+    (supabase
+      .from("profiles")
+      .select("build_mode")
+      .eq("id", user.id)
+      .single()) as unknown as Promise<{ data: { build_mode: string | null } | null }>,
+  ]);
+
+  const buildMode: "self" | "ai" = profile?.build_mode === "ai" ? "ai" : "self";
 
   const commitment = commitments?.[0] ?? null;
 
@@ -96,6 +105,7 @@ export default async function DashboardPage() {
       checkinCount={checkinCount}
       checkinDue={checkinDue}
       startDate={formatStartDate(commitment.started_at)}
+      buildMode={buildMode}
     />
   );
 }

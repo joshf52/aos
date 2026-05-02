@@ -38,10 +38,22 @@ function LoginForm() {
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      router.push(nextPath);
-      router.refresh();
+      return;
     }
+    // Route new users into onboarding if they haven't set a build mode yet
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await (supabase.from("profiles") as any)
+        .select("build_mode")
+        .eq("id", user.id)
+        .single();
+      if (!profile?.build_mode) {
+        router.push("/onboarding/build-mode");
+        return;
+      }
+    }
+    router.push(nextPath);
+    router.refresh();
   }
 
   async function handleOAuth(provider: "google" | "github") {

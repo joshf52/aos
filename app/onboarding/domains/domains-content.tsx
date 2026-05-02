@@ -26,9 +26,11 @@ const DOMAINS = [
 export function DomainsContent({
   initialDomains,
   saveAction,
+  returnTo,
 }: {
   initialDomains: string[];
   saveAction: (formData: FormData) => Promise<void>;
+  returnTo?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(initialDomains);
   const [submitting, setSubmitting] = useState(false);
@@ -43,12 +45,13 @@ export function DomainsContent({
   return (
     <OnboardingShell
       step={2}
-      backHref="/onboarding/build-mode"
+      backHref={returnTo ?? "/onboarding/build-mode"}
       eyebrow="01 · Domains"
       title="What captures your imagination?"
       hint={`Pick at least ${MIN} worlds you want to build in. (${selected.length} selected)`}
       footer={
         <form action={saveAction} onSubmit={() => setSubmitting(true)}>
+          {returnTo && <input type="hidden" name="_return_to" value={returnTo} />}
           {selected.map((id) => (
             <input key={id} type="hidden" name="domains" value={id} />
           ))}

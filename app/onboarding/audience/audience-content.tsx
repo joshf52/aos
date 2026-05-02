@@ -17,9 +17,11 @@ const AUDIENCES = [
 export function AudienceContent({
   initialAudience,
   saveAction,
+  returnTo,
 }: {
   initialAudience: string | null;
   saveAction: (formData: FormData) => Promise<void>;
+  returnTo?: string;
 }) {
   const [selected, setSelected] = useState<string | null>(initialAudience);
   const [submitting, setSubmitting] = useState(false);
@@ -27,12 +29,13 @@ export function AudienceContent({
   return (
     <OnboardingShell
       step={3}
-      backHref="/onboarding/domains"
+      backHref={returnTo ?? "/onboarding/domains"}
       eyebrow="02 · Audience"
       title="Who do you want to serve?"
       hint="There's a customer behind every great product."
       footer={
         <form action={saveAction} onSubmit={() => setSubmitting(true)}>
+          {returnTo && <input type="hidden" name="_return_to" value={returnTo} />}
           <input type="hidden" name="audience" value={selected ?? ""} />
           <PrimaryButton disabled={!selected || submitting}>
             Continue <ArrowRight size={17} strokeWidth={2.5} />

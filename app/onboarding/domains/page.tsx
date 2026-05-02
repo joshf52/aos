@@ -17,10 +17,15 @@ async function saveDomains(formData: FormData): Promise<void> {
     .update({ domains })
     .eq("id", user.id);
 
-  redirect("/onboarding/audience");
+  const returnTo = formData.get("_return_to") as string | null;
+  redirect(returnTo || "/onboarding/audience");
 }
 
-export default async function DomainsPage() {
+export default async function DomainsPage({
+  searchParams,
+}: {
+  searchParams: { from?: string };
+}) {
   const supabase = createClient();
   const {
     data: { user },
@@ -33,10 +38,12 @@ export default async function DomainsPage() {
     .eq("id", user.id)
     .single()) as unknown as { data: { domains: string[] | null } | null };
 
+  const returnTo = searchParams.from === "preferences" ? "/preferences" : undefined;
   return (
     <DomainsContent
       initialDomains={profile?.domains ?? []}
       saveAction={saveDomains}
+      returnTo={returnTo}
     />
   );
 }

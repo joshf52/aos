@@ -10,9 +10,11 @@ const spring = { ease: [0.22, 1, 0.36, 1] as const };
 export function FeedContent({
   opportunities,
   dateLabel,
+  subtitle,
 }: {
   opportunities: Opportunity[];
   dateLabel: string;
+  subtitle: string;
 }) {
   const [featured, ...rest] = opportunities;
 
@@ -47,7 +49,7 @@ export function FeedContent({
           transition={{ duration: 0.6, delay: 0.15 }}
           className="text-sm text-aos-secondary mt-2 leading-relaxed"
         >
-          One opportunity worth your attention.
+          {subtitle}
         </motion.p>
 
         {/* Featured card */}

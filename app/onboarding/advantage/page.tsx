@@ -17,10 +17,15 @@ async function saveAdvantage(formData: FormData): Promise<void> {
     .update({ unfair_advantage })
     .eq("id", user.id);
 
-  redirect("/onboarding/personalizing");
+  const returnTo = formData.get("_return_to") as string | null;
+  redirect(returnTo || "/onboarding/personalizing");
 }
 
-export default async function AdvantagePage() {
+export default async function AdvantagePage({
+  searchParams,
+}: {
+  searchParams: { from?: string };
+}) {
   const supabase = createClient();
   const {
     data: { user },
@@ -35,11 +40,13 @@ export default async function AdvantagePage() {
     data: { unfair_advantage: string | null; build_mode: string | null } | null;
   };
 
+  const returnTo = searchParams.from === "preferences" ? "/preferences" : undefined;
   return (
     <AdvantageContent
       initialText={profile?.unfair_advantage ?? ""}
       buildMode={(profile?.build_mode as "self" | "ai") ?? "self"}
       saveAction={saveAdvantage}
+      returnTo={returnTo}
     />
   );
 }

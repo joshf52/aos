@@ -214,12 +214,13 @@ export function DashboardContent({
             &ldquo;I commit to building {opportunityTitle} for thirty days,
             with full intention, beginning {startDate}.&rdquo;
           </p>
-          <button
+          <Link
+            href={`/commit/${commitmentId}/ceremony`}
             className="flex items-center gap-1 text-[13px] font-medium"
-            style={{ color: "#3DB87A", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            style={{ color: "#3DB87A" }}
           >
             View full document <ChevronRight size={13} strokeWidth={2} />
-          </button>
+          </Link>
         </motion.div>
 
       </div>

@@ -32,10 +32,12 @@ export function CommitmentContent({
   initialCommitment,
   buildMode,
   saveAction,
+  returnTo,
 }: {
   initialCommitment: string | null;
   buildMode: "self" | "ai";
   saveAction: (formData: FormData) => Promise<void>;
+  returnTo?: string;
 }) {
   const [selected, setSelected] = useState<string | null>(initialCommitment);
   const [submitting, setSubmitting] = useState(false);
@@ -46,12 +48,13 @@ export function CommitmentContent({
   return (
     <OnboardingShell
       step={4}
-      backHref="/onboarding/audience"
+      backHref={returnTo ?? "/onboarding/audience"}
       eyebrow="03 · Commitment"
       title={title}
       hint="We match opportunities to your level."
       footer={
         <form action={saveAction} onSubmit={() => setSubmitting(true)}>
+          {returnTo && <input type="hidden" name="_return_to" value={returnTo} />}
           <input type="hidden" name="commitment_level" value={selected ?? ""} />
           <PrimaryButton disabled={!selected || submitting}>
             Continue <ArrowRight size={17} strokeWidth={2.5} />

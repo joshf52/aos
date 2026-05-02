@@ -19,10 +19,12 @@ export function AdvantageContent({
   initialText,
   buildMode,
   saveAction,
+  returnTo,
 }: {
   initialText: string;
   buildMode: "self" | "ai";
   saveAction: (formData: FormData) => Promise<void>;
+  returnTo?: string;
 }) {
   const [text, setText] = useState(initialText);
   const [phIdx, setPhIdx] = useState(0);
@@ -44,12 +46,13 @@ export function AdvantageContent({
   return (
     <OnboardingShell
       step={5}
-      backHref="/onboarding/commitment"
+      backHref={returnTo ?? "/onboarding/commitment"}
       eyebrow="04 · Advantage"
       title={title}
       hint="The thing that makes you uniquely suited for this."
       footer={
         <form action={saveAction} onSubmit={() => setSubmitting(true)}>
+          {returnTo && <input type="hidden" name="_return_to" value={returnTo} />}
           <input type="hidden" name="unfair_advantage" value={text} />
           <PrimaryButton disabled={!text.trim() || submitting}>
             Continue <ArrowRight size={17} strokeWidth={2.5} />

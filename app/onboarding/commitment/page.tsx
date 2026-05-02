@@ -17,10 +17,15 @@ async function saveCommitment(formData: FormData): Promise<void> {
     .update({ commitment_level })
     .eq("id", user.id);
 
-  redirect("/onboarding/advantage");
+  const returnTo = formData.get("_return_to") as string | null;
+  redirect(returnTo || "/onboarding/advantage");
 }
 
-export default async function CommitmentPage() {
+export default async function CommitmentPage({
+  searchParams,
+}: {
+  searchParams: { from?: string };
+}) {
   const supabase = createClient();
   const {
     data: { user },
@@ -35,11 +40,13 @@ export default async function CommitmentPage() {
     data: { commitment_level: string | null; build_mode: string | null } | null;
   };
 
+  const returnTo = searchParams.from === "preferences" ? "/preferences" : undefined;
   return (
     <CommitmentContent
       initialCommitment={profile?.commitment_level ?? null}
       buildMode={(profile?.build_mode as "self" | "ai") ?? "self"}
       saveAction={saveCommitment}
+      returnTo={returnTo}
     />
   );
 }

@@ -204,22 +204,22 @@ export function PreferencesContent({
             <PrefRow
               label="Build mode"
               value={buildModeLabel}
-              href="/onboarding/build-mode"
+              href="/onboarding/build-mode?from=preferences"
             />
             <PrefRow
               label="Domains"
               value={domainsLabel}
-              href="/onboarding/domains"
+              href="/onboarding/domains?from=preferences"
             />
             <PrefRow
               label="Audience"
               value={audienceLabel}
-              href="/onboarding/audience"
+              href="/onboarding/audience?from=preferences"
             />
             <PrefRow
               label="Commitment"
               value={commitmentLabel}
-              href="/onboarding/commitment"
+              href="/onboarding/commitment?from=preferences"
               last
             />
           </Section>
@@ -228,7 +228,7 @@ export function PreferencesContent({
             <PrefRow
               label="Your advantage"
               value={advantageLabel}
-              href="/onboarding/advantage"
+              href="/onboarding/advantage?from=preferences"
               last
             />
           </Section>

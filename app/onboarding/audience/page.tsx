@@ -17,10 +17,15 @@ async function saveAudience(formData: FormData): Promise<void> {
     .update({ audience })
     .eq("id", user.id);
 
-  redirect("/onboarding/commitment");
+  const returnTo = formData.get("_return_to") as string | null;
+  redirect(returnTo || "/onboarding/commitment");
 }
 
-export default async function AudiencePage() {
+export default async function AudiencePage({
+  searchParams,
+}: {
+  searchParams: { from?: string };
+}) {
   const supabase = createClient();
   const {
     data: { user },
@@ -33,10 +38,12 @@ export default async function AudiencePage() {
     .eq("id", user.id)
     .single()) as unknown as { data: { audience: string | null } | null };
 
+  const returnTo = searchParams.from === "preferences" ? "/preferences" : undefined;
   return (
     <AudienceContent
       initialAudience={profile?.audience ?? null}
       saveAction={saveAudience}
+      returnTo={returnTo}
     />
   );
 }

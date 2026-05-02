@@ -17,15 +17,21 @@ async function saveBuildMode(formData: FormData): Promise<void> {
     .update({ build_mode: mode })
     .eq("id", user.id);
 
-  redirect("/onboarding/domains");
+  const returnTo = formData.get("_return_to") as string | null;
+  redirect(returnTo || "/onboarding/domains");
 }
 
-export default async function BuildModePage() {
+export default async function BuildModePage({
+  searchParams,
+}: {
+  searchParams: { from?: string };
+}) {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  return <BuildModeContent saveAction={saveBuildMode} />;
+  const returnTo = searchParams.from === "preferences" ? "/preferences" : undefined;
+  return <BuildModeContent saveAction={saveBuildMode} returnTo={returnTo} />;
 }

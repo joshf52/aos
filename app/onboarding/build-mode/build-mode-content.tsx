@@ -24,8 +24,10 @@ const MODES = [
 
 export function BuildModeContent({
   saveAction,
+  returnTo,
 }: {
   saveAction: (formData: FormData) => Promise<void>;
+  returnTo?: string;
 }) {
   const [selected, setSelected] = useState<"self" | "ai" | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -33,7 +35,7 @@ export function BuildModeContent({
   return (
     <OnboardingShell
       step={1}
-      backHref="/feed"
+      backHref={returnTo ?? "/feed"}
       eyebrow="Before we begin"
       title="How do you want to build?"
       hint="You can change this anytime from preferences."
@@ -50,7 +52,8 @@ export function BuildModeContent({
                 action={saveAction}
                 onSubmit={() => setSubmitting(true)}
               >
-                <input type="hidden" name="build_mode" value={selected} />
+                {returnTo && <input type="hidden" name="_return_to" value={returnTo} />}
+              <input type="hidden" name="build_mode" value={selected} />
                 <PrimaryButton disabled={submitting}>
                   Continue <ArrowRight size={17} strokeWidth={2.5} />
                 </PrimaryButton>

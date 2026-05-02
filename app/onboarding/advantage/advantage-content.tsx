@@ -5,8 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { OnboardingShell, PrimaryButton } from "../shell";
 
-const SPRING = [0.22, 1, 0.36, 1] as const;
-
 const PLACEHOLDERS = [
   "I worked in healthcare operations for 8 years…",
   "I have 50K engaged followers in productivity…",

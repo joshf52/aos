@@ -79,7 +79,6 @@ export default async function ProfilePage() {
   return (
     <ProfileContent
       name={displayName(user.email ?? "Builder")}
-      email={user.email ?? ""}
       reputationStage={profile?.reputation_stage ?? "Explorer"}
       buildMode={(profile?.build_mode as "self" | "ai") ?? null}
       domains={profile?.domains ?? []}

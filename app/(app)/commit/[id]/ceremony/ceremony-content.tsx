@@ -17,12 +17,10 @@ const POP = [0.22, 1.5, 0.36, 1] as const;
 const SPRING = [0.22, 1, 0.36, 1] as const;
 
 export function CeremonyContent({
-  commitmentId,
   opportunityTitle,
   issuanceDate,
   answers,
 }: {
-  commitmentId: string;
   opportunityTitle: string;
   issuanceDate: string;
   answers: string[];

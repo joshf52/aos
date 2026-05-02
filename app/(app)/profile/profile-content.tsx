@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Settings, ChevronRight, Check } from "lucide-react";
+import { Settings, ChevronRight } from "lucide-react";
 
 const SPRING = [0.22, 1, 0.36, 1] as const;
 
@@ -36,7 +36,6 @@ function StatBlock({ label, value }: { label: string; value: string | number }) 
 
 export function ProfileContent({
   name,
-  email,
   reputationStage,
   buildMode,
   domains,
@@ -47,7 +46,6 @@ export function ProfileContent({
   activeCommitmentTitle,
 }: {
   name: string;
-  email: string;
   reputationStage: string;
   buildMode: "self" | "ai" | null;
   domains: string[];

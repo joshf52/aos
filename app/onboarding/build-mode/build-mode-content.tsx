@@ -141,7 +141,7 @@ export function BuildModeContent({
               }}
             >
               <p className="text-[13px] leading-relaxed" style={{ color: "#D4A574" }}>
-                You'll get a free trial of the AI Build service. After
+                You&apos;ll get a free trial of the AI Build service. After
                 evaluating an opportunity, we hand it off to AI — you review
                 and approve.
               </p>

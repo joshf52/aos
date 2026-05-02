@@ -68,7 +68,6 @@ export default async function CeremonyPage({
 
   return (
     <CeremonyContent
-      commitmentId={commitment.id}
       opportunityTitle={opp?.title ?? ""}
       issuanceDate={formatIssuanceDate(commitment.started_at)}
       answers={answers}

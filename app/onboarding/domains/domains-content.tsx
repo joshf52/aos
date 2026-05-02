@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowRight, Brain, Palette, Building2, Cpu, Heart, TrendingUp, BookOpen, Zap, ShoppingBag, Users, Globe, Lightbulb } from "lucide-react";
 import { OnboardingShell, PrimaryButton } from "../shell";
 

@@ -17,13 +17,17 @@ const POP = [0.22, 1.5, 0.36, 1] as const;
 const SPRING = [0.22, 1, 0.36, 1] as const;
 
 export function CeremonyContent({
+  commitmentId,
   opportunityTitle,
   issuanceDate,
   answers,
+  buildMode,
 }: {
+  commitmentId: string;
   opportunityTitle: string;
   issuanceDate: string;
   answers: string[];
+  buildMode: "self" | "ai";
 }) {
   const [phase, setPhase] = useState(0);
   const [signed, setSigned] = useState(false);
@@ -60,6 +64,14 @@ export function CeremonyContent({
     if (signed) return;
     if (holdRef.current) window.clearInterval(holdRef.current);
     setHoldProgress(0);
+  }
+
+  function handleComplete() {
+    if (buildMode === "ai") {
+      router.push(`/commit/${commitmentId}/ai-build`);
+    } else {
+      router.push("/dashboard");
+    }
   }
 
   return (
@@ -159,7 +171,7 @@ export function CeremonyContent({
             initial={{ opacity: 0, scale: 0.9, y: 30 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.9, ease: SPRING }}
-            className="relative z-10"
+            className="relative z-10 overflow-y-auto max-h-[85dvh]"
             style={{
               width: 320,
               background: "#FAF7F0",
@@ -235,7 +247,7 @@ export function CeremonyContent({
                 background: "rgba(212, 165, 116, 0.08)",
                 padding: 14,
                 borderRadius: 4,
-                marginBottom: 18,
+                marginBottom: 16,
                 border: "1px solid rgba(212, 165, 116, 0.2)",
               }}
             >
@@ -264,8 +276,61 @@ export function CeremonyContent({
               </div>
             </div>
 
+            {/* Strategic inputs — the 5 lens answers */}
+            <div style={{ marginBottom: 20 }}>
+              <div
+                style={{
+                  fontSize: 9,
+                  color: "#8B7E5C",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.18em",
+                  fontWeight: 500,
+                  marginBottom: 10,
+                  fontFamily: "var(--font-jakarta), system-ui, sans-serif",
+                  borderBottom: "1px solid #d4cdb8",
+                  paddingBottom: 6,
+                }}
+              >
+                Strategic Inputs
+              </div>
+              {QUESTIONS.map((q, i) => (
+                <div
+                  key={i}
+                  style={{
+                    marginBottom: i < 4 ? 10 : 0,
+                    paddingBottom: i < 4 ? 10 : 0,
+                    borderBottom: i < 4 ? "1px solid rgba(212,165,116,0.15)" : "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 8,
+                      color: "#8B7E5C",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.14em",
+                      fontWeight: 500,
+                      marginBottom: 3,
+                      fontFamily: "var(--font-jakarta), system-ui, sans-serif",
+                    }}
+                  >
+                    {q.label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#2a2a2a",
+                      lineHeight: 1.45,
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {answers[i] || "—"}
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {/* Signature area */}
-            <div style={{ marginTop: 24 }}>
+            <div style={{ marginTop: 8 }}>
               <div
                 style={{
                   borderBottom: signed
@@ -473,17 +538,18 @@ export function CeremonyContent({
                   maxWidth: 280,
                 }}
               >
-                Your sprint begins now. Thirty days. One commitment. Build with
-                conviction.
+                {buildMode === "ai"
+                  ? "Your commitment is sealed. The AI will begin building within 24 hours."
+                  : "Your sprint begins now. Thirty days. One commitment. Build with conviction."}
               </div>
             </motion.div>
 
-            {/* Begin sprint */}
+            {/* CTA */}
             <motion.button
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.6 }}
-              onClick={() => router.push("/dashboard")}
+              onClick={handleComplete}
               whileTap={{ scale: 0.97 }}
               style={{
                 padding: "14px 32px",
@@ -497,7 +563,7 @@ export function CeremonyContent({
                 letterSpacing: "-0.01em",
               }}
             >
-              Begin sprint
+              {buildMode === "ai" ? "See what's next" : "Begin sprint"}
             </motion.button>
           </motion.div>
         )}

@@ -10,9 +10,11 @@ const spring = { ease: [0.22, 1, 0.36, 1] as const };
 
 export function OpportunityContent({
   opportunity,
+  buildMode,
   startEvaluation,
 }: {
   opportunity: Opportunity;
+  buildMode: "self" | "ai";
   startEvaluation: (formData: FormData) => Promise<void>;
 }) {
   const [scrolled, setScrolled] = useState(false);
@@ -151,7 +153,7 @@ export function OpportunityContent({
             className="flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-base font-semibold tracking-[-0.01em] transition-opacity hover:opacity-90"
             style={{ background: "#F5F2ED", color: "#0A0A0C" }}
           >
-            Evaluate this opportunity{" "}
+            {buildMode === "ai" ? "Have AI build this" : "Evaluate this opportunity"}{" "}
             <ArrowRight size={17} strokeWidth={2.5} />
           </motion.button>
         </form>

@@ -46,17 +46,31 @@ export default async function OpportunityPage({
 }) {
   const supabase = createClient();
 
-  const { data: opportunity } = (await supabase
-    .from("opportunities")
-    .select("*")
-    .eq("slug", params.slug)
-    .single()) as unknown as { data: Opportunity | null };
+  const [{ data: opportunity }, { data: { user } }] = await Promise.all([
+    (supabase
+      .from("opportunities")
+      .select("*")
+      .eq("slug", params.slug)
+      .single()) as unknown as Promise<{ data: Opportunity | null }>,
+    supabase.auth.getUser(),
+  ]);
 
   if (!opportunity) redirect("/feed");
+
+  let buildMode: "self" | "ai" = "self";
+  if (user) {
+    const { data: profile } = (await supabase
+      .from("profiles")
+      .select("build_mode")
+      .eq("id", user.id)
+      .single()) as unknown as { data: { build_mode: string | null } | null };
+    if (profile?.build_mode === "ai") buildMode = "ai";
+  }
 
   return (
     <OpportunityContent
       opportunity={opportunity}
+      buildMode={buildMode}
       startEvaluation={startEvaluation}
     />
   );

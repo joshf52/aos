@@ -1,12 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { CeremonyContent } from "./ceremony-content";
+import { AIBuildContent } from "./ai-build-content";
 
 type CommitmentRow = {
   id: string;
   opportunity_id: string;
   lens_id: string;
-  started_at: string;
 };
 
 type LensRow = {
@@ -17,52 +16,35 @@ type LensRow = {
   answer_5: string | null;
 };
 
-function formatIssuanceDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-export default async function CeremonyPage({
+export default async function AIBuildPage({
   params,
 }: {
   params: { id: string };
 }) {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
   const { data: commitment } = (await supabase
     .from("commitments")
-    .select("id, opportunity_id, lens_id, started_at")
+    .select("id, opportunity_id, lens_id")
     .eq("id", params.id)
     .eq("user_id", user.id)
     .single()) as unknown as { data: CommitmentRow | null };
 
   if (!commitment) redirect("/feed");
 
-  const { data: lens } = (await supabase
-    .from("decision_lenses")
-    .select("answer_1, answer_2, answer_3, answer_4, answer_5")
-    .eq("id", commitment.lens_id)
-    .single()) as unknown as { data: LensRow | null };
-
-  const [{ data: opp }, { data: profile }] = await Promise.all([
+  const [{ data: lens }, { data: opp }] = await Promise.all([
+    (supabase
+      .from("decision_lenses")
+      .select("answer_1, answer_2, answer_3, answer_4, answer_5")
+      .eq("id", commitment.lens_id)
+      .single()) as unknown as Promise<{ data: LensRow | null }>,
     (supabase
       .from("opportunities")
       .select("title")
       .eq("id", commitment.opportunity_id)
       .single()) as unknown as Promise<{ data: { title: string } | null }>,
-    (supabase
-      .from("profiles")
-      .select("build_mode")
-      .eq("id", user.id)
-      .single()) as unknown as Promise<{ data: { build_mode: string | null } | null }>,
   ]);
 
   const answers: string[] = [
@@ -74,12 +56,9 @@ export default async function CeremonyPage({
   ];
 
   return (
-    <CeremonyContent
-      commitmentId={params.id}
+    <AIBuildContent
       opportunityTitle={opp?.title ?? ""}
-      issuanceDate={formatIssuanceDate(commitment.started_at)}
       answers={answers}
-      buildMode={(profile?.build_mode as "self" | "ai") ?? "self"}
     />
   );
 }

@@ -33,11 +33,13 @@ export default function SignupPage() {
   }
 
   async function handleOAuth(provider: "google" | "github") {
+    setError(null);
     const supabase = createClient();
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: `${location.origin}/auth/callback` },
     });
+    if (error) setError(error.message);
   }
 
   const canSubmit = email.length > 0 && password.length >= 8;

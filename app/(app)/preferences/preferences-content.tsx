@@ -43,15 +43,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-6">
-      <div className="text-[11px] text-aos-tertiary uppercase tracking-[0.14em] font-medium mb-2 px-1">
+    <div className="mb-5">
+      <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.16em] font-medium mb-2 px-1">
         {label}
       </div>
       <div
         className="rounded-[18px] overflow-hidden"
         style={{
           background: "#15151A",
-          border: "1px solid var(--aos-border)",
+          border: "1px solid rgba(245,242,237,0.06)",
         }}
       >
         {children}
@@ -74,20 +74,16 @@ function PrefRow({
   return (
     <Link
       href={href}
-      className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-white/[0.02]"
-      style={
-        !last
-          ? { borderBottom: "1px solid var(--aos-border)" }
-          : undefined
-      }
+      className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-white/[0.025]"
+      style={!last ? { borderBottom: "1px solid rgba(245,242,237,0.05)" } : undefined}
     >
       <div>
         <div className="text-[14px] text-aos-text font-medium tracking-[-0.01em]">
           {label}
         </div>
-        <div className="text-[12px] text-aos-secondary mt-0.5">{value}</div>
+        <div className="text-[12px] mt-0.5" style={{ color: "#5A5650" }}>{value}</div>
       </div>
-      <ChevronRight size={14} color="#5A5650" strokeWidth={2} />
+      <ChevronRight size={14} color="#3A3A42" strokeWidth={2} />
     </Link>
   );
 }
@@ -104,16 +100,12 @@ function StaticRow({
   return (
     <div
       className="flex items-center justify-between px-5 py-4"
-      style={
-        !last
-          ? { borderBottom: "1px solid var(--aos-border)" }
-          : undefined
-      }
+      style={!last ? { borderBottom: "1px solid rgba(245,242,237,0.05)" } : undefined}
     >
       <div className="text-[14px] text-aos-text font-medium tracking-[-0.01em]">
         {label}
       </div>
-      <div className="text-[13px] text-aos-secondary">{value}</div>
+      <div className="text-[13px]" style={{ color: "#5A5650" }}>{value}</div>
     </div>
   );
 }
@@ -152,35 +144,36 @@ export function PreferencesContent({
           .join(", ") + (domains.length > 3 ? ` +${domains.length - 3}` : "")
       : "Not set";
 
-  const audienceLabel = audience
-    ? (AUDIENCE_LABELS[audience] ?? audience)
-    : "Not set";
-
-  const commitmentLabel = commitmentLevel
-    ? (COMMITMENT_LABELS[commitmentLevel] ?? commitmentLevel)
-    : "Not set";
-
+  const audienceLabel = audience ? (AUDIENCE_LABELS[audience] ?? audience) : "Not set";
+  const commitmentLabel = commitmentLevel ? (COMMITMENT_LABELS[commitmentLevel] ?? commitmentLevel) : "Not set";
   const advantageLabel = unfairAdvantage
-    ? unfairAdvantage.length > 48
-      ? unfairAdvantage.slice(0, 48) + "…"
-      : unfairAdvantage
+    ? unfairAdvantage.length > 48 ? unfairAdvantage.slice(0, 48) + "…" : unfairAdvantage
     : "Not set";
 
   return (
-    <main className="min-h-dvh bg-aos-bg">
-      <div className="px-6 pt-14 pb-28 max-w-lg mx-auto">
+    <main className="min-h-dvh bg-aos-bg relative overflow-hidden">
+      {/* Subtle ambient */}
+      <div
+        className="absolute top-0 right-0 w-[300px] h-[300px] pointer-events-none"
+        style={{
+          background: "radial-gradient(circle, rgba(212,165,116,0.07) 0%, transparent 70%)",
+          filter: "blur(50px)",
+        }}
+      />
+
+      <div className="relative z-10 px-6 pt-14 pb-28 max-w-lg mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <button
             onClick={() => router.back()}
-            className="w-9 h-9 rounded-full flex items-center justify-center"
+            className="w-9 h-9 rounded-full flex items-center justify-center transition-opacity hover:opacity-70"
             style={{
               background: "#15151A",
-              border: "1px solid var(--aos-border-strong)",
+              border: "1px solid rgba(245,242,237,0.08)",
             }}
             aria-label="Back"
           >
-            <ArrowLeft size={16} color="#F5F2ED" strokeWidth={2} />
+            <ArrowLeft size={16} color="#8A8580" strokeWidth={2} />
           </button>
           <span className="text-[15px] font-semibold text-aos-text tracking-[-0.01em]">
             Preferences
@@ -193,10 +186,10 @@ export function PreferencesContent({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: SPRING }}
         >
-          <h1 className="font-serif text-[26px] text-aos-text tracking-[-0.02em] mb-1.5">
+          <h1 className="font-serif text-[30px] text-aos-text tracking-[-0.025em] leading-[1.1] mb-1.5">
             Your taste profile.
           </h1>
-          <p className="font-serif italic text-[13px] text-aos-secondary mb-8">
+          <p className="font-serif italic text-[13px] mb-8" style={{ color: "#5A5650" }}>
             Updates take effect immediately.
           </p>
 
@@ -235,14 +228,12 @@ export function PreferencesContent({
 
           <Section label="Account">
             <StaticRow label="Email" value={email} />
-            <div
-              className="px-5 py-4"
-            >
+            <div className="px-5 py-4">
               <form action={signOut}>
                 <button
                   type="submit"
-                  className="text-[14px] font-medium tracking-[-0.01em]"
-                  style={{ color: "#8A8580", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  className="text-[14px] font-medium tracking-[-0.01em] transition-opacity hover:opacity-70"
+                  style={{ color: "#5A5650", background: "none", border: "none", cursor: "pointer", padding: 0 }}
                 >
                   Sign out
                 </button>

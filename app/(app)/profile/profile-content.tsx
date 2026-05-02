@@ -24,10 +24,10 @@ const DOMAIN_LABELS: Record<string, string> = {
 function StatBlock({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <div className="text-[11px] text-aos-tertiary uppercase tracking-[0.12em] font-medium mb-1">
+      <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.14em] font-medium mb-1">
         {label}
       </div>
-      <div className="text-[22px] text-aos-text font-medium tracking-[-0.02em] tabular-nums">
+      <div className="text-[26px] text-aos-text font-medium tracking-[-0.03em] tabular-nums leading-none">
         {value}
       </div>
     </div>
@@ -60,8 +60,26 @@ export function ProfileContent({
     buildMode === "ai" ? "AI Builder" : buildMode === "self" ? "Builder" : "Builder";
 
   return (
-    <main className="min-h-dvh bg-aos-bg">
-      <div className="px-6 pt-16 pb-28 max-w-lg mx-auto">
+    <main className="min-h-dvh bg-aos-bg relative overflow-hidden">
+      {/* Ambient blobs */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div
+          className="absolute -top-20 -left-20 w-[360px] h-[360px] rounded-full"
+          style={{
+            background: "radial-gradient(circle, rgba(212,165,116,0.12) 0%, transparent 65%)",
+            filter: "blur(60px)",
+          }}
+        />
+        <div
+          className="absolute top-[40%] -right-10 w-[260px] h-[260px] rounded-full"
+          style={{
+            background: "radial-gradient(circle, rgba(61,184,122,0.07) 0%, transparent 65%)",
+            filter: "blur(50px)",
+          }}
+        />
+      </div>
+
+      <div className="relative z-10 px-6 pt-16 pb-28 max-w-lg mx-auto">
 
         {/* Header */}
         <motion.div
@@ -74,20 +92,20 @@ export function ProfileContent({
             <div className="text-[12px] text-aos-tertiary uppercase tracking-[0.15em] font-medium">
               {reputationStage}
             </div>
-            <h1 className="font-serif text-[38px] text-aos-text tracking-[-0.03em] leading-[1.05] mt-1">
+            <h1 className="font-serif text-[42px] text-aos-text tracking-[-0.035em] leading-[1.0] mt-1">
               {name}.
             </h1>
           </div>
           <Link
             href="/preferences"
-            className="w-9 h-9 rounded-full flex items-center justify-center mt-7"
+            className="w-9 h-9 rounded-full flex items-center justify-center mt-8 transition-opacity hover:opacity-70"
             style={{
               background: "#15151A",
-              border: "1px solid var(--aos-border)",
+              border: "1px solid rgba(245,242,237,0.08)",
             }}
             aria-label="Preferences"
           >
-            <Settings size={16} color="#F5F2ED" strokeWidth={1.8} />
+            <Settings size={16} color="#8A8580" strokeWidth={1.8} />
           </Link>
         </motion.div>
 
@@ -96,46 +114,73 @@ export function ProfileContent({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1, ease: SPRING }}
-          className="mt-7 p-6 rounded-3xl relative overflow-hidden"
+          className="mt-7 rounded-[26px] relative overflow-hidden"
           style={{
-            background: "linear-gradient(135deg, #1C1C22 0%, #15151A 100%)",
-            border: "1px solid var(--aos-border)",
+            background: "linear-gradient(160deg, #1E1E26 0%, #15151A 55%, #12121A 100%)",
+            border: "1px solid rgba(245,242,237,0.08)",
+            boxShadow: "0 0 0 1px rgba(212,165,116,0.04), 0 20px 40px rgba(0,0,0,0.35)",
           }}
         >
-          {/* Ambient glow */}
+          {/* Gold glow top-right */}
           <div
-            className="absolute -top-10 -right-10 w-44 h-44 rounded-full pointer-events-none"
+            className="absolute -top-10 -right-10 w-52 h-52 pointer-events-none"
             style={{
-              background:
-                "radial-gradient(circle, rgba(212, 165, 116, 0.15) 0%, transparent 70%)",
+              background: "radial-gradient(circle, rgba(212,165,116,0.18) 0%, transparent 65%)",
+              filter: "blur(24px)",
+            }}
+          />
+          {/* Green glow bottom-left */}
+          <div
+            className="absolute -bottom-8 -left-8 w-40 h-40 pointer-events-none"
+            style={{
+              background: "radial-gradient(circle, rgba(61,184,122,0.08) 0%, transparent 65%)",
+              filter: "blur(20px)",
+            }}
+          />
+          {/* Dot grid */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: "radial-gradient(circle, rgba(245,242,237,0.07) 1px, transparent 1px)",
+              backgroundSize: "22px 22px",
+              maskImage: "radial-gradient(ellipse at 80% 20%, black 0%, transparent 60%)",
+              WebkitMaskImage: "radial-gradient(ellipse at 80% 20%, black 0%, transparent 60%)",
             }}
           />
 
-          <div className="relative">
+          <div className="relative p-6">
             {/* Avatar */}
             <div
-              className="w-14 h-14 rounded-full flex items-center justify-center mb-4 font-serif text-[24px]"
+              className="w-14 h-14 rounded-[16px] flex items-center justify-center mb-5 font-serif text-[26px] tracking-tight"
               style={{
-                background:
-                  "linear-gradient(135deg, #D4A574 0%, #B8915C 100%)",
-                color: "#1a1a1a",
+                background: "linear-gradient(145deg, #D4A574 0%, #B8895A 100%)",
+                color: "#1a1208",
+                boxShadow: "0 4px 16px rgba(212,165,116,0.3)",
               }}
             >
               {initial}
             </div>
 
-            <div className="font-serif text-[22px] text-aos-text tracking-[-0.02em]">
+            <div
+              className="inline-flex items-center gap-1.5 px-2.5 py-[5px] rounded-full text-[10px] font-medium tracking-[0.06em] uppercase mb-3"
+              style={{
+                background: "rgba(212,165,116,0.1)",
+                color: "#D4A574",
+                border: "1px solid rgba(212,165,116,0.18)",
+              }}
+            >
               {modeLabel}
             </div>
+
             {unfairAdvantage && (
-              <p className="font-serif italic text-[13px] text-aos-secondary leading-snug mt-1.5">
+              <p className="font-serif italic text-[14px] leading-relaxed mb-5" style={{ color: "#8A8580" }}>
                 &ldquo;{unfairAdvantage}&rdquo;
               </p>
             )}
 
             <div
-              className="flex gap-6 mt-5 pt-5"
-              style={{ borderTop: "1px solid var(--aos-border)" }}
+              className="flex gap-7 pt-5"
+              style={{ borderTop: "1px solid rgba(245,242,237,0.07)" }}
             >
               <StatBlock label="Sprints" value={totalCommitments} />
               <StatBlock label="Shipped" value={shippedCount} />
@@ -153,22 +198,24 @@ export function ProfileContent({
           >
             <Link
               href="/dashboard"
-              className="mt-4 flex items-center justify-between p-[18px] rounded-[18px]"
+              className="mt-4 flex items-center justify-between p-5 rounded-[20px] transition-opacity hover:opacity-80"
               style={{
                 background: "rgba(61, 184, 122, 0.07)",
-                border: "1px solid rgba(61, 184, 122, 0.25)",
+                border: "1px solid rgba(61, 184, 122, 0.22)",
               }}
             >
               <div>
-                <div className="text-[11px] uppercase tracking-[0.12em] font-medium mb-1"
-                  style={{ color: "#3DB87A" }}>
+                <div
+                  className="text-[10px] uppercase tracking-[0.14em] font-medium mb-1.5"
+                  style={{ color: "#3DB87A" }}
+                >
                   Active sprint
                 </div>
-                <div className="font-serif text-[17px] text-aos-text tracking-[-0.01em]">
+                <div className="font-serif text-[18px] text-aos-text tracking-[-0.02em] leading-snug">
                   {activeCommitmentTitle}
                 </div>
               </div>
-              <ChevronRight size={16} color="#3DB87A" strokeWidth={2} />
+              <ChevronRight size={16} color="#3DB87A" strokeWidth={2} className="shrink-0" />
             </Link>
           </motion.div>
         )}
@@ -179,19 +226,19 @@ export function ProfileContent({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.24, ease: SPRING }}
-            className="mt-4 p-[18px] rounded-[18px]"
+            className="mt-4 p-5 rounded-[20px]"
             style={{
               background: "#15151A",
-              border: "1px solid var(--aos-border)",
+              border: "1px solid rgba(245,242,237,0.06)",
             }}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[11px] text-aos-tertiary uppercase tracking-[0.14em] font-medium">
+            <div className="flex items-center justify-between mb-3.5">
+              <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.14em] font-medium">
                 Taste profile
               </div>
               <Link
                 href="/preferences"
-                className="text-[11px] font-medium"
+                className="text-[11px] font-medium transition-opacity hover:opacity-70"
                 style={{ color: "#5A5650" }}
               >
                 Edit
@@ -204,7 +251,7 @@ export function ProfileContent({
                   className="px-3 py-1.5 rounded-full text-[11px] font-medium text-aos-text"
                   style={{
                     background: "#1C1C22",
-                    border: "1px solid var(--aos-border)",
+                    border: "1px solid rgba(245,242,237,0.07)",
                   }}
                 >
                   {DOMAIN_LABELS[id] ?? id}
@@ -215,7 +262,7 @@ export function ProfileContent({
                   className="px-3 py-1.5 rounded-full text-[11px] font-medium text-aos-secondary"
                   style={{
                     background: "#1C1C22",
-                    border: "1px solid var(--aos-border)",
+                    border: "1px solid rgba(245,242,237,0.07)",
                   }}
                 >
                   +{domains.length - 6}
@@ -231,13 +278,13 @@ export function ProfileContent({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.28, ease: SPRING }}
-            className="mt-4 p-6 rounded-[18px] text-center"
+            className="mt-4 p-6 rounded-[20px] text-center"
             style={{
               background: "#15151A",
-              border: "1px solid var(--aos-border)",
+              border: "1px solid rgba(245,242,237,0.06)",
             }}
           >
-            <p className="font-serif italic text-[15px] text-aos-secondary leading-relaxed mb-4">
+            <p className="font-serif italic text-[15px] leading-relaxed mb-5" style={{ color: "#5A5650" }}>
               Your sprint history will appear here.
             </p>
             <Link

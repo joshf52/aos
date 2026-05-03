@@ -4,16 +4,15 @@ Tracked tasks deferred for later. Pick up the next item by feeding it back to Cl
 
 ## Pending
 
-### Production setup for personalization + email
-**When:** before next deploy
-**Why deferred:** Code shipped but live system needs human steps.
+### Next 5 build priorities (in order)
+**When:** next session
+**Why deferred:** Conversation cleared mid-plan; pick up here.
 **Steps:**
-1. Run `supabase/migrations/003_opportunity_domains.sql` in Supabase SQL editor (adds `domains` column, tags seeded opportunities, GIN index).
-2. Run `supabase/migrations/004_email_state.sql` (adds `welcomed_at`, `last_nudged_at` to profiles).
-3. Create a Resend account, verify the sending domain, paste API key + from-address into Vercel env: `RESEND_API_KEY`, `RESEND_FROM_ADDRESS`.
-4. Add `SUPABASE_SERVICE_ROLE_KEY` to Vercel env (Project Settings → Environment Variables) for the cron route.
-5. Add `CRON_SECRET` to Vercel env — any long random string. Vercel injects it as `Authorization: Bearer <secret>` automatically for crons in `vercel.json`.
-6. Redeploy. The cron in `vercel.json` runs daily at 14:37 UTC; verify the first run in Vercel → Cron Jobs.
+1. Update CLAUDE.md "Current Status" + "What's not built" sections to reflect reality (most "not built" items have shipped: onboarding, profile, preferences, ceremony, email).
+2. Founder analytics page at `/founders` — gated by env-var email allowlist; shows signup count, commit rate, ship rate, abandon rate, time-to-first-commit, active sprints. Matches Phase 6 success metrics.
+3. `email_events` table + writes — migration `005`, called from `lib/email/send.ts` on welcome + nudge sends. Foundation for #4 and analytics.
+4. `/api/webhooks/resend` — verify Resend signature, accept delivery/bounce/complaint events into `email_events`, mark bounced addresses so the cron skips them.
+5. Stripe Pro tier scaffolding — migration adds `profiles.tier`, `pro_until`, `stripe_customer_id`. Server action creates Checkout Session. `/api/webhooks/stripe` for subscription lifecycle. Active-commitment cap becomes 1 (free) / 3 (pro). Add upgrade CTA at the cap. Add Stripe account/webhook setup steps to FOLLOWUPS.
 
 ---
 

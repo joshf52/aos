@@ -15,6 +15,17 @@ type CommitmentRow = {
   opportunity_id: string;
   started_at: string;
   status: string;
+  completed_at: string | null;
+  shipped_url: string | null;
+};
+
+type OpportunityTitleRow = { id: string; title: string };
+
+type ShippedItem = {
+  id: string;
+  title: string;
+  url: string | null;
+  completedAt: string | null;
 };
 
 function displayName(email: string): string {
@@ -41,7 +52,7 @@ export default async function ProfilePage() {
 
     supabase
       .from("commitments")
-      .select("id, opportunity_id, started_at, status")
+      .select("id, opportunity_id, started_at, status, completed_at, shipped_url")
       .eq("user_id", user.id)
       .order("started_at", { ascending: false }) as unknown as Promise<{
       data: CommitmentRow[] | null;
@@ -52,20 +63,36 @@ export default async function ProfilePage() {
   const commitments = commitmentsResult.data ?? [];
   const activeCommitment =
     commitments.find((c) => c.status === "active") ?? null;
-  const shippedCount = commitments.filter(
+  const shippedCommitments = commitments.filter(
     (c) => c.status === "completed"
-  ).length;
+  );
+  const shippedCount = shippedCommitments.length;
 
-  // Fetch opportunity title for active commitment
-  let activeTitleResult = null;
-  if (activeCommitment) {
-    const res = (await supabase
+  // Fetch titles for active + shipped commitments in one query
+  const idsToFetch = [
+    ...(activeCommitment ? [activeCommitment.opportunity_id] : []),
+    ...shippedCommitments.map((c) => c.opportunity_id),
+  ];
+
+  const titleById = new Map<string, string>();
+  if (idsToFetch.length > 0) {
+    const { data: titles } = (await supabase
       .from("opportunities")
-      .select("title")
-      .eq("id", activeCommitment.opportunity_id)
-      .single()) as unknown as { data: { title: string } | null };
-    activeTitleResult = res.data?.title ?? null;
+      .select("id, title")
+      .in("id", idsToFetch)) as unknown as { data: OpportunityTitleRow[] | null };
+    (titles ?? []).forEach((row) => titleById.set(row.id, row.title));
   }
+
+  const activeTitleResult = activeCommitment
+    ? titleById.get(activeCommitment.opportunity_id) ?? null
+    : null;
+
+  const shippedHistory: ShippedItem[] = shippedCommitments.map((c) => ({
+    id: c.id,
+    title: titleById.get(c.opportunity_id) ?? "Untitled sprint",
+    url: c.shipped_url,
+    completedAt: c.completed_at,
+  }));
 
   // Total check-ins across all commitments
   const { count: checkinCount } = await supabase
@@ -87,6 +114,7 @@ export default async function ProfilePage() {
       shippedCount={shippedCount}
       checkinCount={checkinCount ?? 0}
       activeCommitmentTitle={activeTitleResult}
+      shippedHistory={shippedHistory}
     />
   );
 }

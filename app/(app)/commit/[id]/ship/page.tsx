@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { ShipContent } from "./ship-content";
+import { recomputeReputation } from "@/lib/reputation";
 
 type CommitmentRow = {
   id: string;
@@ -41,6 +42,8 @@ async function markShipped(formData: FormData) {
     event_name: "commitment_shipped",
     payload: { commitment_id: commitmentId, url, reflection },
   });
+
+  await recomputeReputation(supabase, user.id);
 
   revalidatePath("/dashboard");
   revalidatePath("/profile");

@@ -2,8 +2,29 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Settings, ChevronRight } from "lucide-react";
+import { Settings, ChevronRight, ExternalLink } from "lucide-react";
 import { GoldSeal } from "@/components/ui/gold-seal";
+
+type ShippedItem = {
+  id: string;
+  title: string;
+  url: string | null;
+  completedAt: string | null;
+};
+
+function formatShipDate(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function trimUrl(url: string | null): string {
+  if (!url) return "";
+  return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
 
 const SPRING = [0.22, 1, 0.36, 1] as const;
 
@@ -45,6 +66,7 @@ export function ProfileContent({
   shippedCount,
   checkinCount,
   activeCommitmentTitle,
+  shippedHistory,
 }: {
   name: string;
   reputationStage: string;
@@ -55,6 +77,7 @@ export function ProfileContent({
   shippedCount: number;
   checkinCount: number;
   activeCommitmentTitle: string | null;
+  shippedHistory: ShippedItem[];
 }) {
   const initial = name.charAt(0).toUpperCase();
   const modeLabel =
@@ -211,6 +234,63 @@ export function ProfileContent({
               </div>
               <ChevronRight size={16} color="#3DB87A" strokeWidth={2} className="shrink-0" />
             </Link>
+          </motion.div>
+        )}
+
+        {/* Shipped history */}
+        {shippedHistory.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.22, ease: SPRING }}
+            className="mt-5"
+          >
+            <div className="flex items-center justify-between mb-3 px-1">
+              <div className="text-[10px] uppercase tracking-[0.16em] font-medium" style={{ color: "#D4A574" }}>
+                Shipped
+              </div>
+              <span className="text-[11px] tabular-nums" style={{ color: "#5A5650" }}>
+                {shippedHistory.length} sealed
+              </span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {shippedHistory.map((item, i) => (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.28 + i * 0.06, ease: SPRING }}
+                  className="relative p-4 rounded-[18px] overflow-hidden"
+                  style={{
+                    background: "linear-gradient(160deg, #1A1A22 0%, #15151A 100%)",
+                    border: "1px solid rgba(212,165,116,0.12)",
+                  }}
+                >
+                  {/* Tiny seal corner */}
+                  <div className="absolute -top-2 -right-2 opacity-80 pointer-events-none">
+                    <GoldSeal size={36} letter="A" />
+                  </div>
+                  <div className="text-[10px] uppercase tracking-[0.14em] font-medium mb-1.5" style={{ color: "#5A5650" }}>
+                    {formatShipDate(item.completedAt)}
+                  </div>
+                  <div className="font-serif text-[16px] text-aos-text tracking-[-0.01em] leading-snug pr-10 mb-2">
+                    {item.title}
+                  </div>
+                  {item.url && (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-[12px] font-medium transition-opacity hover:opacity-80"
+                      style={{ color: "#D4A574" }}
+                    >
+                      <span className="truncate max-w-[220px]">{trimUrl(item.url)}</span>
+                      <ExternalLink size={11} strokeWidth={2.2} />
+                    </a>
+                  )}
+                </motion.div>
+              ))}
+            </div>
           </motion.div>
         )}
 

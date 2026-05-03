@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { LensContent } from "./lens-content";
+import { recomputeReputation } from "@/lib/reputation";
 
 type LensRow = {
   id: string;
@@ -59,6 +60,20 @@ async function completeLens(lensId: string, answers: string[]): Promise<string> 
 
   if (!lens?.opportunity_id) return "";
 
+  // Free-tier gate: one active commitment at a time. Surface the existing one
+  // rather than silently failing the insert (RLS would also reject if we ever
+  // add a per-user uniqueness constraint).
+  const { data: existing } = (await supabase
+    .from("commitments")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .limit(1)) as unknown as { data: { id: string }[] | null };
+
+  if (existing && existing.length > 0) {
+    return existing[0].id;
+  }
+
   const { data: commitment } = (await (supabase.from("commitments") as any)
     .insert({
       user_id: user.id,
@@ -69,6 +84,10 @@ async function completeLens(lensId: string, answers: string[]): Promise<string> 
     })
     .select("id")
     .single()) as { data: { id: string } | null };
+
+  if (commitment?.id) {
+    await recomputeReputation(supabase, user.id);
+  }
 
   return commitment?.id ?? "";
 }

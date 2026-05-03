@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { DashboardContent } from "./dashboard-content";
+import { recomputeReputation } from "@/lib/reputation";
 import Link from "next/link";
 
 async function abandonCommitment(formData: FormData) {
@@ -27,6 +28,8 @@ async function abandonCommitment(formData: FormData) {
     event_name: "commitment_abandoned",
     payload: { commitment_id: commitmentId },
   });
+
+  await recomputeReputation(supabase, user.id);
 
   revalidatePath("/dashboard");
   revalidatePath("/profile");

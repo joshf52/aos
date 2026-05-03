@@ -1,6 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { AdvantageContent } from "./advantage-content";
+import { sendWelcome } from "@/lib/email/send";
+
+function displayName(email: string): string {
+  const local = email.split("@")[0];
+  const name = local.split(/[._]/)[0];
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
 async function saveAdvantage(formData: FormData): Promise<void> {
   "use server";
@@ -13,11 +20,37 @@ async function saveAdvantage(formData: FormData): Promise<void> {
   const unfair_advantage = (formData.get("unfair_advantage") as string)?.trim();
   if (!unfair_advantage) return;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("profiles") as any)
     .update({ unfair_advantage })
     .eq("id", user.id);
 
   const returnTo = formData.get("_return_to") as string | null;
+  const isFinishingOnboarding = !returnTo;
+
+  // Send welcome email exactly once, at the end of onboarding. Stamps
+  // welcomed_at on success so re-edits via Preferences don't re-trigger.
+  if (isFinishingOnboarding && user.email) {
+    const { data: state } = (await supabase
+      .from("profiles")
+      .select("welcomed_at")
+      .eq("id", user.id)
+      .single()) as unknown as { data: { welcomed_at: string | null } | null };
+
+    if (!state?.welcomed_at) {
+      const result = await sendWelcome({
+        to: user.email,
+        name: displayName(user.email),
+      });
+      if (result.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("profiles") as any)
+          .update({ welcomed_at: new Date().toISOString() })
+          .eq("id", user.id);
+      }
+    }
+  }
+
   redirect(returnTo || "/onboarding/personalizing");
 }
 

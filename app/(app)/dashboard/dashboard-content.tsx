@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { Zap, ChevronRight } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Zap, ChevronRight, Sparkles } from "lucide-react";
 import { GoldSeal } from "@/components/ui/gold-seal";
 
 const spring = { ease: [0.22, 1, 0.36, 1] as const };
+const SPRING = [0.22, 1, 0.36, 1] as const;
 
 // Snake path connecting all 30 dots (3 rows × 10)
 const SNAKE_PATH = Array.from({ length: 30 })
@@ -27,6 +29,7 @@ export function DashboardContent({
   checkinDue,
   startDate,
   buildMode,
+  abandonCommitment,
 }: {
   commitmentId: string;
   opportunityTitle: string;
@@ -36,7 +39,12 @@ export function DashboardContent({
   checkinDue: boolean;
   startDate: string;
   buildMode: "self" | "ai";
+  abandonCommitment: (formData: FormData) => Promise<void>;
 }) {
+  const [confirmAbandon, setConfirmAbandon] = useState(false);
+  const canShip = daysIn >= 1; // user can ship any time
+  const shipReady = daysIn >= 28;
+
   return (
     <main className="min-h-dvh bg-aos-bg relative overflow-hidden">
       {/* Ambient blobs */}
@@ -268,7 +276,129 @@ export function DashboardContent({
           </Link>
         </motion.div>
 
+        {/* Ship CTA */}
+        {canShip && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.4, ...spring }}
+            className="mt-5"
+          >
+            <Link
+              href={`/commit/${commitmentId}/ship`}
+              className="group relative flex items-center justify-center gap-2 w-full py-[16px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em] overflow-hidden transition-transform active:scale-[0.99]"
+              style={{
+                background: shipReady
+                  ? "linear-gradient(180deg, #E8BD8E 0%, #B8895A 100%)"
+                  : "rgba(212,165,116,0.08)",
+                color: shipReady ? "#1a1208" : "#D4A574",
+                border: shipReady ? "none" : "1px solid rgba(212,165,116,0.25)",
+                boxShadow: shipReady
+                  ? "0 0 0 1px rgba(212,165,116,0.3) inset, 0 12px 30px rgba(212,165,116,0.18)"
+                  : "none",
+              }}
+            >
+              {shipReady ? (
+                <>
+                  <Sparkles size={15} strokeWidth={2.5} />
+                  <span>Mark as shipped</span>
+                </>
+              ) : (
+                <>
+                  <span>Ship it early</span>
+                  <ChevronRight size={15} strokeWidth={2.5} />
+                </>
+              )}
+            </Link>
+          </motion.div>
+        )}
+
+        {/* Abandon — discreet */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.6, delay: 0.6 }}
+          className="mt-8 text-center"
+        >
+          <button
+            onClick={() => setConfirmAbandon(true)}
+            className="text-[12px] font-medium tracking-[-0.01em] transition-opacity hover:opacity-100"
+            style={{ color: "#3A3A42", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+          >
+            Abandon sprint
+          </button>
+        </motion.div>
+
       </div>
+
+      {/* Abandon confirmation overlay */}
+      <AnimatePresence>
+        {confirmAbandon && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-6 sm:pb-0"
+            style={{ background: "rgba(10,10,12,0.7)", backdropFilter: "blur(8px)" }}
+            onClick={() => setConfirmAbandon(false)}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={{ duration: 0.35, ease: SPRING }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-[24px] p-6 relative"
+              style={{
+                background: "linear-gradient(160deg, #1A1A22 0%, #15151A 100%)",
+                border: "1px solid rgba(245,242,237,0.08)",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+              }}
+            >
+              <div className="text-[10px] uppercase tracking-[0.16em] font-medium mb-2" style={{ color: "#D4A574" }}>
+                Heads up
+              </div>
+              <h2 className="font-serif text-[24px] text-aos-text tracking-[-0.02em] leading-[1.15]">
+                Abandon this sprint?
+              </h2>
+              <p className="font-serif italic text-[13px] mt-2 leading-relaxed" style={{ color: "#8A8580" }}>
+                The covenant breaks. Reputation and concurrent slots reset
+                accordingly. You can pick a new opportunity right after.
+              </p>
+              <div className="flex gap-2.5 mt-6">
+                <button
+                  onClick={() => setConfirmAbandon(false)}
+                  className="flex-1 py-3 rounded-[14px] text-[14px] font-medium transition-colors"
+                  style={{
+                    background: "transparent",
+                    color: "#F5F2ED",
+                    border: "1px solid rgba(245,242,237,0.12)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Keep going
+                </button>
+                <form action={abandonCommitment} className="flex-1">
+                  <input type="hidden" name="commitmentId" value={commitmentId} />
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-[14px] text-[14px] font-semibold transition-opacity hover:opacity-90"
+                    style={{
+                      background: "rgba(255, 90, 90, 0.12)",
+                      color: "#ff8a8a",
+                      border: "1px solid rgba(255, 90, 90, 0.3)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Abandon
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }

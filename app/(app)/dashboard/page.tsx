@@ -1,7 +1,37 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { DashboardContent } from "./dashboard-content";
 import Link from "next/link";
+
+async function abandonCommitment(formData: FormData) {
+  "use server";
+  const commitmentId = formData.get("commitmentId") as string;
+  if (!commitmentId) return;
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase.from("commitments") as any)
+    .update({ status: "abandoned", abandoned_at: new Date().toISOString() })
+    .eq("id", commitmentId)
+    .eq("user_id", user.id);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase.from("events") as any).insert({
+    user_id: user.id,
+    event_name: "commitment_abandoned",
+    payload: { commitment_id: commitmentId },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/profile");
+  redirect("/feed");
+}
 
 type CommitmentRow = {
   id: string;
@@ -106,6 +136,7 @@ export default async function DashboardPage() {
       checkinDue={checkinDue}
       startDate={formatStartDate(commitment.started_at)}
       buildMode={buildMode}
+      abandonCommitment={abandonCommitment}
     />
   );
 }

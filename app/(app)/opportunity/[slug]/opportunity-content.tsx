@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, Bookmark, Activity, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Activity, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Opportunity } from "@/types/database";
@@ -62,20 +62,6 @@ export function OpportunityContent({
         }}
       >
         <ArrowLeft size={16} color="#F5F2ED" strokeWidth={2} />
-      </button>
-
-      {/* Floating bookmark button */}
-      <button
-        aria-label="Bookmark"
-        className="fixed top-[56px] right-4 z-30 w-9 h-9 rounded-full flex items-center justify-center"
-        style={{
-          background: "rgba(28, 28, 34, 0.75)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-          border: "1px solid var(--aos-border)",
-        }}
-      >
-        <Bookmark size={15} color="#F5F2ED" strokeWidth={2} />
       </button>
 
       {/* Scrollable body */}

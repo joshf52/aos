@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -15,6 +15,13 @@ const QUESTIONS = [
 
 const POP = [0.22, 1.5, 0.36, 1] as const;
 const SPRING = [0.22, 1, 0.36, 1] as const;
+
+function vibrate(pattern: number | number[]): void {
+  if (typeof navigator === "undefined") return;
+  const v = navigator.vibrate?.bind(navigator);
+  if (!v) return;
+  try { v(pattern); } catch { /* unsupported — silent */ }
+}
 
 export function CeremonyContent({
   commitmentId,
@@ -33,7 +40,25 @@ export function CeremonyContent({
   const [signed, setSigned] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
   const holdRef = useRef<number | null>(null);
+  const pulsedRef = useRef(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const router = useRouter();
+
+  // Pre-compute particle trajectories so re-renders don't reshuffle them.
+  const dustParticles = useMemo(
+    () =>
+      Array.from({ length: 18 }, (_, i) => {
+        const angle = (i / 18) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+        const dist = 56 + Math.random() * 38;
+        return {
+          dx: Math.cos(angle) * dist,
+          dy: Math.sin(angle) * dist,
+          delay: i * 0.018,
+          size: 3 + Math.random() * 2,
+        };
+      }),
+    []
+  );
 
   useEffect(() => {
     const t1 = window.setTimeout(() => setPhase(1), 1800);
@@ -41,18 +66,74 @@ export function CeremonyContent({
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      if (holdRef.current) window.clearInterval(holdRef.current);
+      audioCtxRef.current?.close().catch(() => {});
     };
   }, []);
 
+  // Seal moment: deep haptic + soft bell tone, fired declaratively on phase change.
+  useEffect(() => {
+    if (phase !== 3) return;
+    vibrate([40, 30, 80]);
+    const t = window.setTimeout(() => playBellTone(), 100);
+    return () => window.clearTimeout(t);
+  }, [phase]);
+
+  function ensureAudio(): AudioContext | null {
+    if (typeof window === "undefined") return null;
+    if (audioCtxRef.current) return audioCtxRef.current;
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctx) return null;
+    try {
+      audioCtxRef.current = new Ctx();
+      return audioCtxRef.current;
+    } catch {
+      return null;
+    }
+  }
+
+  function playBellTone(): void {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    const tone = (freq: number, peak: number, dur: number) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(peak, now + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + dur + 0.05);
+    };
+    // Fundamental + softer octave overtone — meditation-bowl character.
+    tone(660, 0.22, 2.0);
+    tone(1320, 0.05, 1.2);
+  }
+
   function startHold() {
     if (signed) return;
+    // Create AudioContext inside the user gesture so browsers permit playback later.
+    ensureAudio();
+    pulsedRef.current = false;
     const start = Date.now();
     holdRef.current = window.setInterval(() => {
       const elapsed = Date.now() - start;
       const p = Math.min(elapsed / 1500, 1);
       setHoldProgress(p);
+      if (p >= 0.5 && !pulsedRef.current) {
+        pulsedRef.current = true;
+        vibrate(12);
+      }
       if (p >= 1) {
         window.clearInterval(holdRef.current!);
+        holdRef.current = null;
         setSigned(true);
         setPhase(3);
         window.setTimeout(() => setPhase(4), 2000);
@@ -62,7 +143,11 @@ export function CeremonyContent({
 
   function cancelHold() {
     if (signed) return;
-    if (holdRef.current) window.clearInterval(holdRef.current);
+    if (holdRef.current) {
+      window.clearInterval(holdRef.current);
+      holdRef.current = null;
+    }
+    pulsedRef.current = false;
     setHoldProgress(0);
   }
 
@@ -421,6 +506,42 @@ export function CeremonyContent({
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Gold dust shimmer — emanates from the seal center at the moment of sealing */}
+            {phase >= 3 && (
+              <div
+                className="absolute pointer-events-none"
+                aria-hidden
+                style={{ bottom: 64, right: 54, width: 0, height: 0 }}
+              >
+                {dustParticles.map((p, i) => (
+                  <motion.span
+                    key={i}
+                    initial={{ x: 0, y: 0, opacity: 0, scale: 0 }}
+                    animate={{
+                      x: p.dx,
+                      y: p.dy,
+                      opacity: [0, 1, 0],
+                      scale: [0, 1, 0.5],
+                    }}
+                    transition={{
+                      duration: 1.2,
+                      delay: 0.15 + p.delay,
+                      ease: SPRING,
+                    }}
+                    className="absolute block rounded-full"
+                    style={{
+                      width: p.size,
+                      height: p.size,
+                      background: "#D4A574",
+                      boxShadow: "0 0 6px rgba(212,165,116,0.7)",
+                      left: 0,
+                      top: 0,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -447,6 +568,7 @@ export function CeremonyContent({
               onMouseLeave={cancelHold}
               onTouchStart={startHold}
               onTouchEnd={cancelHold}
+              onPointerCancel={cancelHold}
               whileTap={{ scale: 0.98 }}
               className="relative overflow-hidden focus-gold transition-[filter] hover:brightness-110"
               style={{

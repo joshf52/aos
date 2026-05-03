@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Settings, ChevronRight } from "lucide-react";
+import { GoldSeal } from "@/components/ui/gold-seal";
 
 const SPRING = [0.22, 1, 0.36, 1] as const;
 
@@ -149,16 +150,9 @@ export function ProfileContent({
           />
 
           <div className="relative p-6">
-            {/* Avatar */}
-            <div
-              className="w-14 h-14 rounded-[16px] flex items-center justify-center mb-5 font-serif text-[26px] tracking-tight"
-              style={{
-                background: "linear-gradient(145deg, #D4A574 0%, #B8895A 100%)",
-                color: "#1a1208",
-                boxShadow: "0 4px 16px rgba(212,165,116,0.3)",
-              }}
-            >
-              {initial}
+            {/* Wax seal avatar */}
+            <div className="mb-5">
+              <GoldSeal letter={initial} size={58} pulse />
             </div>
 
             <div

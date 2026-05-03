@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Zap, ChevronRight } from "lucide-react";
+import { GoldSeal } from "@/components/ui/gold-seal";
 
 const spring = { ease: [0.22, 1, 0.36, 1] as const };
 
@@ -241,16 +242,20 @@ export function DashboardContent({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: checkinDue ? 0.36 : 0.28, ...spring }}
-          className="mt-4 p-5 rounded-[20px]"
+          className="mt-4 p-5 rounded-[20px] relative overflow-hidden"
           style={{
             background: "#15151A",
             border: "1px solid rgba(245,242,237,0.06)",
           }}
         >
+          {/* Wax seal in corner */}
+          <div className="absolute -top-3 -right-3 opacity-90">
+            <GoldSeal size={48} letter="A" />
+          </div>
           <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.14em] font-medium mb-2.5">
             Your Covenant
           </div>
-          <p className="font-serif text-[14px] text-aos-text italic leading-relaxed mb-3.5">
+          <p className="font-serif text-[14px] text-aos-text italic leading-relaxed mb-3.5 pr-12">
             &ldquo;I commit to building {opportunityTitle} for thirty days,
             with full intention, beginning {startDate}.&rdquo;
           </p>

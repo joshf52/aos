@@ -1,16 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 
 const SPRING = [0.22, 1, 0.36, 1] as const;
 const PILLS = ["5 opportunities weekly", "Decision Lens", "30-day sprint"];
 
 export default function LandingPage() {
-  return (
-    <main className="min-h-dvh bg-[#0A0A0C] relative flex flex-col items-center justify-center overflow-hidden">
+  // Mouse parallax — normalized -1..1 across the viewport
+  const mx = useMotionValue(0);
+  const my = useMotionValue(0);
+  const px = useSpring(mx, { damping: 28, stiffness: 90, mass: 0.6 });
+  const py = useSpring(my, { damping: 28, stiffness: 90, mass: 0.6 });
 
+  // Different parallax depths for layering
+  const xNear = useTransform(px, [-1, 1], [-22, 22]);
+  const yNear = useTransform(py, [-1, 1], [-22, 22]);
+  const xMid = useTransform(px, [-1, 1], [-14, 14]);
+  const yMid = useTransform(py, [-1, 1], [-14, 14]);
+  const xFar = useTransform(px, [-1, 1], [-7, 7]);
+  const yFar = useTransform(py, [-1, 1], [-7, 7]);
+
+  // Spotlight position (in px)
+  const spotX = useTransform(px, [-1, 1], ["20%", "80%"]);
+  const spotY = useTransform(py, [-1, 1], ["25%", "75%"]);
+  const spotlight = useTransform(
+    [spotX, spotY] as never,
+    ([x, y]: string[]) =>
+      `radial-gradient(circle 380px at ${x} ${y}, rgba(212,165,116,0.08), transparent 70%)`
+  );
+
+  function handleMouse(e: React.MouseEvent<HTMLElement>) {
+    const { innerWidth, innerHeight } = window;
+    mx.set((e.clientX / innerWidth - 0.5) * 2);
+    my.set((e.clientY / innerHeight - 0.5) * 2);
+  }
+
+  return (
+    <main
+      onMouseMove={handleMouse}
+      onMouseLeave={() => {
+        mx.set(0);
+        my.set(0);
+      }}
+      className="min-h-dvh bg-[#0A0A0C] relative flex flex-col items-center justify-center overflow-hidden"
+    >
       {/* ── Layer 0: grain texture ── */}
       <div
         className="absolute inset-0 z-0 pointer-events-none"
@@ -20,8 +55,18 @@ export default function LandingPage() {
         }}
       />
 
-      {/* ── Layer 1: animated blobs ── */}
-      <div className="absolute inset-0 z-[1] pointer-events-none overflow-hidden">
+      {/* ── Layer 0.5: cursor spotlight (subtle) ── */}
+      <motion.div
+        aria-hidden
+        className="absolute inset-0 z-[1] pointer-events-none hidden md:block"
+        style={{ background: spotlight }}
+      />
+
+      {/* ── Layer 1: animated blobs (with subtle far parallax) ── */}
+      <motion.div
+        style={{ x: xFar, y: yFar }}
+        className="absolute inset-0 z-[1] pointer-events-none overflow-hidden"
+      >
         <motion.div
           animate={{ x: [0, 50, -30, 0], y: [0, -40, 30, 0] }}
           transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
@@ -58,114 +103,140 @@ export default function LandingPage() {
             filter: "blur(55px)",
           }}
         />
-        {/* Central soft glow */}
         <div
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full pointer-events-none"
           style={{
             background: "radial-gradient(circle, rgba(61,184,122,0.035) 0%, transparent 55%)",
           }}
         />
-      </div>
+      </motion.div>
 
-      {/* ── Layer 2: floating UI fragments ── */}
+      {/* ── Layer 2: floating UI fragments (with mid/near parallax) ── */}
       <div className="absolute inset-0 z-[2] pointer-events-none overflow-hidden">
-        {/* Opportunity card — left edge */}
+        {/* Opportunity card — left edge, mid layer */}
         <motion.div
-          initial={{ rotate: -10 }}
-          animate={{ y: [0, -14, 0], rotate: [-10, -8, -10] }}
-          transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -left-14 top-[22%] w-[210px]"
-          style={{
-            background: "#1C1C22",
-            border: "1px solid rgba(245,242,237,0.09)",
-            borderRadius: 14,
-            padding: 16,
-            opacity: 0.22,
-            filter: "blur(1px)",
-          }}
+          style={{ x: xMid, y: yMid }}
+          className="absolute -left-14 top-[22%]"
         >
-          <div style={{ fontSize: 8, color: "#D4A574", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 7, fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500 }}>
-            AI & Developer Tools
-          </div>
-          <div style={{ fontSize: 13, color: "#F5F2ED", lineHeight: 1.3, fontFamily: "var(--font-cormorant), Georgia, serif" }}>
-            The gap in AI-native research tools for independent analysts
-          </div>
-          <div style={{ display: "flex", gap: 3, marginTop: 10 }}>
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: i <= 4 ? "#D4A574" : "rgba(245,242,237,0.14)" }} />
-            ))}
-          </div>
+          <motion.div
+            initial={{ rotate: -10 }}
+            animate={{ y: [0, -14, 0], rotate: [-10, -8, -10] }}
+            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
+            className="w-[210px]"
+            style={{
+              background: "#1C1C22",
+              border: "1px solid rgba(245,242,237,0.09)",
+              borderRadius: 14,
+              padding: 16,
+              opacity: 0.22,
+              filter: "blur(1px)",
+              boxShadow: "0 12px 30px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{ fontSize: 8, color: "#D4A574", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 7, fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500 }}>
+              AI &amp; Developer Tools
+            </div>
+            <div style={{ fontSize: 13, color: "#F5F2ED", lineHeight: 1.3, fontFamily: "var(--font-cormorant), Georgia, serif" }}>
+              The gap in AI-native research tools for independent analysts
+            </div>
+            <div style={{ display: "flex", gap: 3, marginTop: 10 }}>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: i <= 4 ? "#D4A574" : "rgba(245,242,237,0.14)" }} />
+              ))}
+            </div>
+          </motion.div>
         </motion.div>
 
-        {/* Lens question — right edge */}
+        {/* Lens question — right edge, mid layer */}
         <motion.div
-          initial={{ rotate: 9 }}
-          animate={{ y: [0, 16, 0], rotate: [9, 7, 9] }}
-          transition={{ duration: 11, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-          className="absolute -right-12 top-[30%] w-[190px]"
-          style={{
-            background: "#15151A",
-            border: "1px solid rgba(245,242,237,0.08)",
-            borderRadius: 14,
-            padding: 16,
-            opacity: 0.22,
-            filter: "blur(1px)",
-          }}
+          style={{ x: xMid, y: yMid }}
+          className="absolute -right-12 top-[30%]"
         >
-          <div style={{ fontSize: 8, color: "#3DB87A", textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 9, fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500 }}>
-            Step 3 · Wedge
-          </div>
-          <div style={{ fontSize: 13, color: "#F5F2ED", lineHeight: 1.35, fontFamily: "var(--font-cormorant), Georgia, serif", fontStyle: "italic" }}>
-            Why would they switch to you?
-          </div>
+          <motion.div
+            initial={{ rotate: 9 }}
+            animate={{ y: [0, 16, 0], rotate: [9, 7, 9] }}
+            transition={{ duration: 11, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+            className="w-[190px]"
+            style={{
+              background: "#15151A",
+              border: "1px solid rgba(245,242,237,0.08)",
+              borderRadius: 14,
+              padding: 16,
+              opacity: 0.22,
+              filter: "blur(1px)",
+              boxShadow: "0 12px 30px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{ fontSize: 8, color: "#3DB87A", textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 9, fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500 }}>
+              Step 3 · Wedge
+            </div>
+            <div style={{ fontSize: 13, color: "#F5F2ED", lineHeight: 1.35, fontFamily: "var(--font-cormorant), Georgia, serif", fontStyle: "italic" }}>
+              Why would they switch to you?
+            </div>
+          </motion.div>
         </motion.div>
 
-        {/* Covenant document — bottom right */}
+        {/* Covenant document — bottom right, near layer (most parallax) */}
         <motion.div
-          initial={{ rotate: 5 }}
-          animate={{ y: [0, -10, 0], rotate: [5, 7, 5] }}
-          transition={{ duration: 13, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-          className="absolute right-[5%] bottom-[10%] w-[150px]"
-          style={{
-            background: "#FAF7F0",
-            border: "1px solid rgba(212,165,116,0.18)",
-            borderRadius: 4,
-            padding: 14,
-            opacity: 0.14,
-            filter: "blur(1.5px)",
-          }}
+          style={{ x: xNear, y: yNear }}
+          className="absolute right-[5%] bottom-[10%]"
         >
-          <div style={{ fontSize: 7, color: "#8B7E5C", textTransform: "uppercase", letterSpacing: "0.2em", textAlign: "center", marginBottom: 7, fontFamily: "var(--font-jakarta), sans-serif" }}>
-            Builder&apos;s Covenant
-          </div>
-          <div style={{ height: 1, background: "#d4cdb8", marginBottom: 8 }} />
-          <div style={{ fontSize: 10, color: "#3a3a3a", lineHeight: 1.4, fontFamily: "var(--font-cormorant), Georgia, serif", fontStyle: "italic", textAlign: "center" }}>
-            I commit, with full intention, for thirty days.
-          </div>
+          <motion.div
+            initial={{ rotate: 5 }}
+            animate={{ y: [0, -10, 0], rotate: [5, 7, 5] }}
+            transition={{ duration: 13, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+            className="w-[150px]"
+            style={{
+              background: "#FAF7F0",
+              border: "1px solid rgba(212,165,116,0.18)",
+              borderRadius: 4,
+              padding: 14,
+              opacity: 0.16,
+              filter: "blur(1.5px)",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ fontSize: 7, color: "#8B7E5C", textTransform: "uppercase", letterSpacing: "0.2em", textAlign: "center", marginBottom: 7, fontFamily: "var(--font-jakarta), sans-serif" }}>
+              Builder&apos;s Covenant
+            </div>
+            <div style={{ height: 1, background: "#d4cdb8", marginBottom: 8 }} />
+            <div style={{ fontSize: 10, color: "#3a3a3a", lineHeight: 1.4, fontFamily: "var(--font-cormorant), Georgia, serif", fontStyle: "italic", textAlign: "center" }}>
+              I commit, with full intention, for thirty days.
+            </div>
+          </motion.div>
         </motion.div>
 
-        {/* Stats pill — bottom left */}
+        {/* Stats pill — bottom left, near layer */}
         <motion.div
-          initial={{ rotate: -4 }}
-          animate={{ y: [0, 8, 0], rotate: [-4, -6, -4] }}
-          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 3 }}
+          style={{ x: xNear, y: yNear }}
           className="absolute left-[4%] bottom-[18%]"
-          style={{
-            background: "rgba(61,184,122,0.08)",
-            border: "1px solid rgba(61,184,122,0.2)",
-            borderRadius: 100,
-            padding: "8px 14px",
-            opacity: 0.35,
-            filter: "blur(0.5px)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
         >
-          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#3DB87A" }} />
-          <span style={{ fontSize: 10, color: "#3DB87A", fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500, letterSpacing: "0.04em" }}>
-            47 builders active
-          </span>
+          <motion.div
+            initial={{ rotate: -4 }}
+            animate={{ y: [0, 8, 0], rotate: [-4, -6, -4] }}
+            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 3 }}
+            style={{
+              background: "rgba(61,184,122,0.08)",
+              border: "1px solid rgba(61,184,122,0.2)",
+              borderRadius: 100,
+              padding: "8px 14px",
+              opacity: 0.4,
+              filter: "blur(0.5px)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              boxShadow: "0 8px 20px rgba(0,0,0,0.3)",
+            }}
+          >
+            <motion.div
+              animate={{ opacity: [0.5, 1, 0.5], scale: [0.85, 1, 0.85] }}
+              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+              style={{ width: 6, height: 6, borderRadius: "50%", background: "#3DB87A" }}
+            />
+            <span style={{ fontSize: 10, color: "#3DB87A", fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500, letterSpacing: "0.04em" }}>
+              47 builders active
+            </span>
+          </motion.div>
         </motion.div>
       </div>
 
@@ -187,25 +258,54 @@ export default function LandingPage() {
           transition={{ duration: 0.7, ease: SPRING }}
           className="flex items-center gap-2.5 mb-8"
         >
-          <div className="w-1 h-1 rounded-full" style={{ background: "#3DB87A" }} />
+          <motion.div
+            animate={{ opacity: [0.6, 1, 0.6], scale: [0.85, 1.1, 0.85] }}
+            transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+            className="w-1 h-1 rounded-full"
+            style={{ background: "#3DB87A", boxShadow: "0 0 6px #3DB87A" }}
+          />
           <span className="text-[10px] font-medium tracking-[0.22em] uppercase" style={{ color: "#5A5650" }}>
             Builder&apos;s Framework
           </span>
-          <div className="w-1 h-1 rounded-full" style={{ background: "#3DB87A" }} />
+          <motion.div
+            animate={{ opacity: [0.6, 1, 0.6], scale: [0.85, 1.1, 0.85] }}
+            transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut", delay: 1.3 }}
+            className="w-1 h-1 rounded-full"
+            style={{ background: "#3DB87A", boxShadow: "0 0 6px #3DB87A" }}
+          />
         </motion.div>
 
-        {/* AOS wordmark */}
-        <motion.h1
+        {/* AOS wordmark with subtle glow */}
+        <motion.div
           initial={{ opacity: 0, y: 28 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.9, delay: 0.08, ease: SPRING }}
-          className="font-serif text-[#F5F2ED] select-none"
-          style={{ fontSize: "clamp(80px, 22vw, 112px)", letterSpacing: "-0.05em", lineHeight: 1 }}
+          className="relative"
         >
-          AOS
-        </motion.h1>
+          {/* Soft glow behind the wordmark */}
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: "radial-gradient(ellipse 60% 80% at center, rgba(212,165,116,0.10) 0%, transparent 65%)",
+              filter: "blur(20px)",
+              transform: "scale(1.4)",
+            }}
+          />
+          <h1
+            className="relative font-serif text-[#F5F2ED] select-none"
+            style={{
+              fontSize: "clamp(80px, 22vw, 112px)",
+              letterSpacing: "-0.05em",
+              lineHeight: 1,
+              textShadow: "0 0 40px rgba(245,242,237,0.05)",
+            }}
+          >
+            AOS
+          </h1>
+        </motion.div>
 
-        {/* Divider */}
+        {/* Divider with rotating diamond */}
         <motion.div
           initial={{ opacity: 0, scaleX: 0 }}
           animate={{ opacity: 1, scaleX: 1 }}
@@ -213,7 +313,15 @@ export default function LandingPage() {
           className="flex items-center gap-3 my-5 w-[180px]"
         >
           <div className="flex-1 h-px" style={{ background: "rgba(212,165,116,0.22)" }} />
-          <div className="w-[5px] h-[5px] rotate-45 shrink-0" style={{ background: "#D4A574", opacity: 0.55 }} />
+          <motion.div
+            animate={{ rotate: [45, 405] }}
+            transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
+            className="w-[6px] h-[6px] shrink-0"
+            style={{
+              background: "linear-gradient(135deg, #E8BD8E 0%, #B8895A 100%)",
+              boxShadow: "0 0 8px rgba(212,165,116,0.4)",
+            }}
+          />
           <div className="flex-1 h-px" style={{ background: "rgba(212,165,116,0.22)" }} />
         </motion.div>
 
@@ -247,9 +355,12 @@ export default function LandingPage() {
           transition={{ duration: 0.7, delay: 0.42, ease: SPRING }}
           className="flex flex-wrap items-center justify-center gap-2 mt-6"
         >
-          {PILLS.map((label) => (
-            <span
+          {PILLS.map((label, i) => (
+            <motion.span
               key={label}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.46 + i * 0.06, ease: SPRING }}
               className="px-3 py-1 rounded-full text-[10px] font-medium tracking-[0.02em]"
               style={{
                 background: "rgba(245,242,237,0.04)",
@@ -258,7 +369,7 @@ export default function LandingPage() {
               }}
             >
               {label}
-            </span>
+            </motion.span>
           ))}
         </motion.div>
 
@@ -271,14 +382,29 @@ export default function LandingPage() {
         >
           <Link
             href="/auth/signup"
-            className="flex items-center justify-center gap-2 w-full py-[16px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em] transition-opacity hover:opacity-90"
-            style={{ background: "#F5F2ED", color: "#0A0A0C" }}
+            className="group relative flex items-center justify-center gap-2 w-full py-[16px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em] overflow-hidden transition-transform active:scale-[0.99]"
+            style={{
+              background: "linear-gradient(180deg, #FFFCF5 0%, #F5F2ED 100%)",
+              color: "#0A0A0C",
+              boxShadow:
+                "0 1px 0 rgba(255,255,255,0.6) inset, 0 0 0 1px rgba(212,165,116,0.18), 0 12px 30px rgba(212,165,116,0.10)",
+            }}
           >
-            Get started <ArrowRight size={16} strokeWidth={2.5} />
+            {/* Subtle hover gloss */}
+            <span
+              aria-hidden
+              className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+              style={{
+                background:
+                  "radial-gradient(180px 90px at 50% 0%, rgba(212,165,116,0.18), transparent 70%)",
+              }}
+            />
+            <span className="relative">Get started</span>
+            <ArrowRight size={16} strokeWidth={2.5} className="relative" />
           </Link>
           <Link
             href="/auth/login"
-            className="flex items-center justify-center w-full py-[15px] rounded-[18px] text-[15px] font-medium tracking-[-0.01em] transition-opacity hover:opacity-70"
+            className="flex items-center justify-center w-full py-[15px] rounded-[18px] text-[15px] font-medium tracking-[-0.01em] transition-all hover:border-[rgba(245,242,237,0.16)]"
             style={{
               background: "transparent",
               color: "#8A8580",
@@ -287,6 +413,20 @@ export default function LandingPage() {
           >
             Sign in
           </Link>
+        </motion.div>
+
+        {/* Subtle footer cue */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 1 }}
+          className="absolute -bottom-12 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none"
+        >
+          <div className="w-1 h-1 rounded-full" style={{ background: "rgba(212,165,116,0.4)" }} />
+          <span className="text-[9px] uppercase tracking-[0.24em]" style={{ color: "#3A3A42" }}>
+            Refreshes Mondays
+          </span>
+          <div className="w-1 h-1 rounded-full" style={{ background: "rgba(212,165,116,0.4)" }} />
         </motion.div>
 
       </div>

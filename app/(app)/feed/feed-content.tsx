@@ -7,16 +7,32 @@ import type { Opportunity } from "@/types/database";
 
 const spring = { ease: [0.22, 1, 0.36, 1] as const };
 
+const DOMAIN_LABELS: Record<string, string> = {
+  ai: "AI", creator: "Creator", b2b: "B2B", devtools: "Dev Tools",
+  health: "Health", finance: "Finance", education: "Education",
+  productivity: "Productivity", commerce: "E-commerce",
+  community: "Community", media: "Media", climate: "Climate",
+};
+
+function pickMatch(opp: Opportunity, userDomains: string[]): string | null {
+  const set = new Set(userDomains);
+  const match = (opp.domains ?? []).find((d) => set.has(d));
+  return match ? DOMAIN_LABELS[match] ?? match : null;
+}
+
 export function FeedContent({
   opportunities,
   dateLabel,
   subtitle,
+  userDomains,
 }: {
   opportunities: Opportunity[];
   dateLabel: string;
   subtitle: string;
+  userDomains: string[];
 }) {
   const [featured, ...rest] = opportunities;
+  const featuredMatch = featured ? pickMatch(featured, userDomains) : null;
 
   return (
     <main className="min-h-dvh bg-aos-bg">
@@ -104,7 +120,7 @@ export function FeedContent({
                       style={{ background: "rgba(212,165,116,0.1)", color: "#D4A574", border: "1px solid rgba(212,165,116,0.18)" }}
                     >
                       <Sparkles size={10} strokeWidth={2} />
-                      Featured
+                      {featuredMatch ? `For you · ${featuredMatch}` : "Featured"}
                     </div>
                     <ConfidenceDots count={featured.confidence} />
                   </div>

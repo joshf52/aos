@@ -64,6 +64,7 @@ export interface Database {
           confidence: number;
           builder_count: number;
           is_active: boolean;
+          domains: string[];
         };
         Insert: {
           id?: string;
@@ -79,6 +80,7 @@ export interface Database {
           confidence: number;
           builder_count?: number;
           is_active?: boolean;
+          domains?: string[];
         };
         Update: {
           id?: string;
@@ -94,6 +96,7 @@ export interface Database {
           confidence?: number;
           builder_count?: number;
           is_active?: boolean;
+          domains?: string[];
         };
       };
       decision_lenses: {

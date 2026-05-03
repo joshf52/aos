@@ -1,4 +1,4 @@
-insert into public.opportunities (title, slug, capability, gap, signal, wedge, example_customer, why_now, confidence, builder_count)
+insert into public.opportunities (title, slug, capability, gap, signal, wedge, example_customer, why_now, confidence, builder_count, domains)
 values
 (
   'Notion Template Analytics',
@@ -12,7 +12,8 @@ values
   'Priya, 28. Sells 4 Notion templates. Makes $3,200/month. Has no idea which sections people use. Would pay $29/month to know.',
   'Notion API matured in 2023. Template selling is now a legitimate business model. Window is open before a well-funded startup notices.',
   5,
-  12
+  12,
+  array['creator', 'productivity']
 ),
 (
   'Invoice Dispute Assistant',
@@ -26,7 +27,8 @@ r/freelance has 400K members with payment dispute as a top recurring complaint',
   'Marcus, 34. Runs a 3-person design studio. Lost $8,400 last year to clients who underpaid or ghosted. Spends 4 hours per dispute. Would pay $19/month to never draft those emails again.',
   'AI writing tools are normalized. Freelance economy is growing. Late payment is a structural problem with no incumbent solution below $200/month.',
   4,
-  7
+  7,
+  array['creator', 'productivity', 'b2b']
 ),
 (
   'GDPR Cleanup Tool',
@@ -40,7 +42,8 @@ Y Combinator companies frequently list GDPR compliance as a Q3/Q4 engineering bu
   'Anika, CTO at a 12-person SaaS. Has 47 unanswered deletion requests. Knows she''s technically violating GDPR. Has no budget for Transcend or OneTrust. Would pay $49/month to make the legal risk go away.',
   'GDPR enforcement is ramping up on smaller companies. The "we''re too small to be targeted" assumption is breaking down post-2023.',
   4,
-  8
+  8,
+  array['b2b', 'devtools']
 ),
 (
   'Micro-SaaS Valuation Calculator',
@@ -54,7 +57,8 @@ IndieHackers valuation threads routinely get 200+ comments',
   'Jamie, 31. Built a $2,400 MRR Zapier alternative for real estate agents. Wants to sell and travel for a year. Has no idea if it''s worth $50K or $150K. Would pay $29 one-time to find out.',
   'The micro-SaaS acquisition market matured significantly 2021–2023. More sellers exist than ever. Valuation anxiety is now a documented, recurring pain in every indie hacker community.',
   4,
-  5
+  5,
+  array['b2b', 'finance']
 ),
 (
   'Conference Talk Submission Assistant',
@@ -68,5 +72,6 @@ Speakers who submit 10+ CFPs per year are a known, vocal community on Twitter/X'
   'Sarah, 29. Senior engineer. Has spoken at 2 local meetups. Wants to break into conference speaking to grow her reputation. Submitted to 8 CFPs this year. Got rejected from all 8. Would pay $15/month during conference season.',
   'Remote work normalized conference speaking as a career lever. The speaker → consultant pipeline is well understood now. More engineers want in than ever before.',
   3,
-  4
+  4,
+  array['ai', 'creator', 'productivity']
 );

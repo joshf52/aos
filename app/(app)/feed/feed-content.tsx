@@ -76,9 +76,9 @@ export function FeedContent({
             transition={{ duration: 0.7, delay: 0.25, ...spring }}
             className="mt-7"
           >
-            <Link href={`/opportunity/${featured.slug}`}>
+            <Link href={`/opportunity/${featured.slug}`} className="block rounded-[28px]">
               <div
-                className="rounded-[28px] relative overflow-hidden cursor-pointer active:scale-[0.99] transition-transform duration-150"
+                className="rounded-[28px] relative overflow-hidden cursor-pointer active:scale-[0.99] transition-all duration-200 hover:-translate-y-0.5 hover:![border-color:rgba(245,242,237,0.14)]"
                 style={{
                   background: "linear-gradient(160deg, #1E1E26 0%, #15151A 60%, #12121A 100%)",
                   border: "1px solid rgba(245,242,237,0.08)",
@@ -188,7 +188,7 @@ export function FeedContent({
                 >
                   <Link
                     href={`/opportunity/${opp.slug}`}
-                    className="flex items-center gap-3.5 p-4 rounded-[18px] w-full active:scale-[0.99] transition-transform duration-150"
+                    className="flex items-center gap-3.5 p-4 rounded-[18px] w-full active:scale-[0.99] transition-all duration-200 hover:!bg-aos-elevated hover:![border-color:var(--aos-border-strong)]"
                     style={{
                       background: "#15151A",
                       border: "1px solid var(--aos-border)",

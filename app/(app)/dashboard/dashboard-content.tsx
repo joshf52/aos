@@ -286,7 +286,7 @@ export function DashboardContent({
           >
             <Link
               href={`/commit/${commitmentId}/ship`}
-              className="group relative flex items-center justify-center gap-2 w-full py-[16px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em] overflow-hidden transition-transform active:scale-[0.99]"
+              className="group relative flex items-center justify-center gap-2 w-full py-[16px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em] overflow-hidden transition-all active:scale-[0.99] hover:brightness-110 focus-gold"
               style={{
                 background: shipReady
                   ? "linear-gradient(180deg, #E8BD8E 0%, #B8895A 100%)"
@@ -322,7 +322,7 @@ export function DashboardContent({
         >
           <button
             onClick={() => setConfirmAbandon(true)}
-            className="text-[12px] font-medium tracking-[-0.01em] transition-opacity hover:opacity-100"
+            className="text-[12px] font-medium tracking-[-0.01em] transition-colors hover:!text-aos-secondary rounded"
             style={{ color: "#3A3A42", background: "none", border: "none", cursor: "pointer", padding: 0 }}
           >
             Abandon sprint
@@ -369,7 +369,7 @@ export function DashboardContent({
               <div className="flex gap-2.5 mt-6">
                 <button
                   onClick={() => setConfirmAbandon(false)}
-                  className="flex-1 py-3 rounded-[14px] text-[14px] font-medium transition-colors"
+                  className="flex-1 py-3 rounded-[14px] text-[14px] font-medium transition-colors hover:!bg-aos-elevated hover:![border-color:var(--aos-border-strong)]"
                   style={{
                     background: "transparent",
                     color: "#F5F2ED",

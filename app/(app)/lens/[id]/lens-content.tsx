@@ -222,7 +222,7 @@ export function LensContent({
             onClick={handleNext}
             disabled={!canAdvance || completing}
             whileTap={canAdvance ? { scale: 0.98 } : {}}
-            className="flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em]"
+            className="flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em] enabled:hover:opacity-90"
             style={{
               background: !canAdvance || completing ? "#1C1C22" : "#F5F2ED",
               color: !canAdvance || completing ? "#3A3A42" : "#0A0A0C",

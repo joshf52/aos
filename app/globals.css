@@ -37,3 +37,26 @@
     text-wrap: balance;
   }
 }
+
+@layer base {
+  /* Keyboard focus baseline. Mouse clicks won't trigger focus-visible,
+     so this only shows for tab-nav users — accessibility without visual noise. */
+  *:focus-visible {
+    outline: 2px solid #3DB87A;
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
+
+  /* Inputs/textareas have their own border swap on focus; sit the ring flush
+     against the border so it doesn't double-up visually. */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline-offset: 0;
+  }
+
+  /* Sacred surfaces (commit/ceremony) — opt in to gold instead of accent. */
+  .focus-gold:focus-visible {
+    outline-color: #D4A574;
+  }
+}

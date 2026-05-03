@@ -404,7 +404,7 @@ export default function LandingPage() {
           </Link>
           <Link
             href="/auth/login"
-            className="flex items-center justify-center w-full py-[15px] rounded-[18px] text-[15px] font-medium tracking-[-0.01em] transition-all hover:border-[rgba(245,242,237,0.16)]"
+            className="flex items-center justify-center w-full py-[15px] rounded-[18px] text-[15px] font-medium tracking-[-0.01em] transition-all hover:![border-color:rgba(245,242,237,0.18)] hover:!text-aos-text"
             style={{
               background: "transparent",
               color: "#8A8580",

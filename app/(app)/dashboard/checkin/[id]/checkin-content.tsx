@@ -155,7 +155,7 @@ export function CheckinContent({
             type="submit"
             disabled={submitting}
             whileTap={{ scale: submitting ? 1 : 0.97 }}
-            className="w-full py-[17px] rounded-[18px] text-[16px] font-semibold flex items-center justify-center gap-2 tracking-[-0.01em] mt-2"
+            className="w-full py-[17px] rounded-[18px] text-[16px] font-semibold flex items-center justify-center gap-2 tracking-[-0.01em] mt-2 enabled:hover:opacity-90"
             style={{
               background: submitting ? "#1C1C22" : "#F5F2ED",
               color: submitting ? "#3A3A42" : "#0A0A0C",

@@ -53,7 +53,9 @@ export function BottomNav() {
             <Link
               key={href}
               href={href}
-              className="relative flex flex-col items-center justify-center gap-[5px] px-7 py-2"
+              aria-label={label}
+              aria-current={isActive ? "page" : undefined}
+              className="relative flex flex-col items-center justify-center gap-[5px] px-7 py-2 rounded-[16px] group"
             >
               {/* Pill backdrop — shared layout animates between tabs */}
               {isActive && (
@@ -74,20 +76,21 @@ export function BottomNav() {
               <motion.div
                 animate={{ y: isActive ? -1 : 0, scale: isActive ? 1.04 : 1 }}
                 transition={{ duration: 0.3, ease: SPRING }}
-                className="relative z-10"
+                className={`relative z-10 transition-colors ${
+                  isActive
+                    ? "text-aos-text"
+                    : "text-[#3A3A42] group-hover:text-aos-secondary"
+                }`}
               >
-                <Icon
-                  size={21}
-                  color={isActive ? "#F5F2ED" : "#3A3A42"}
-                  strokeWidth={isActive ? 1.9 : 1.5}
-                />
+                <Icon size={21} strokeWidth={isActive ? 1.9 : 1.5} />
               </motion.div>
               <span
-                className="relative z-10 text-[10px] tracking-[0.01em] transition-colors"
-                style={{
-                  color: isActive ? "#F5F2ED" : "#3A3A42",
-                  fontWeight: isActive ? 600 : 400,
-                }}
+                className={`relative z-10 text-[10px] tracking-[0.01em] transition-colors ${
+                  isActive
+                    ? "text-aos-text"
+                    : "text-[#3A3A42] group-hover:text-aos-secondary"
+                }`}
+                style={{ fontWeight: isActive ? 600 : 400 }}
               >
                 {label}
               </span>

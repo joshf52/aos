@@ -149,7 +149,7 @@ function LoginForm() {
               type="submit"
               disabled={loading || !canSubmit}
               whileTap={canSubmit ? { scale: 0.98 } : {}}
-              className="mt-1 flex items-center justify-center gap-2 w-full py-[16px] rounded-[14px] text-base font-semibold tracking-[-0.01em] transition-all duration-300"
+              className="mt-1 flex items-center justify-center gap-2 w-full py-[16px] rounded-[14px] text-base font-semibold tracking-[-0.01em] transition-all duration-300 enabled:hover:opacity-90"
               style={{
                 background: !canSubmit || loading ? "#1C1C22" : "#F5F2ED",
                 color: !canSubmit || loading ? "#5A5650" : "#0A0A0C",

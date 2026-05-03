@@ -194,7 +194,7 @@ export function ShipContent({
                 type="submit"
                 disabled={!canSubmit || submitting}
                 whileTap={canSubmit ? { scale: 0.98 } : {}}
-                className="mt-2 flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-[16px] font-semibold tracking-[-0.01em]"
+                className="mt-2 flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-[16px] font-semibold tracking-[-0.01em] focus-gold transition-[filter] enabled:hover:brightness-110"
                 style={{
                   background: !canSubmit || submitting ? "#1C1C22" : "linear-gradient(180deg, #E8BD8E 0%, #B8895A 100%)",
                   color: !canSubmit || submitting ? "#3A3A42" : "#1a1208",

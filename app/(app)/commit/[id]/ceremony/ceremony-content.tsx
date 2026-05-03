@@ -448,7 +448,7 @@ export function CeremonyContent({
               onTouchStart={startHold}
               onTouchEnd={cancelHold}
               whileTap={{ scale: 0.98 }}
-              className="relative overflow-hidden"
+              className="relative overflow-hidden focus-gold transition-[filter] hover:brightness-110"
               style={{
                 width: 240,
                 height: 54,

@@ -94,19 +94,6 @@ export function BottomNav() {
               >
                 {label}
               </span>
-
-              {/* Tiny green accent dot under active label */}
-              {isActive && (
-                <motion.div
-                  layoutId="nav-dot"
-                  transition={{ duration: 0.45, ease: SPRING }}
-                  className="absolute bottom-[10px] w-1 h-1 rounded-full z-10"
-                  style={{
-                    background: "#3DB87A",
-                    boxShadow: "0 0 6px rgba(61,184,122,0.6)",
-                  }}
-                />
-              )}
             </Link>
           );
         })}

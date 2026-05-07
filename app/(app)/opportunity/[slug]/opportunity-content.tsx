@@ -2,22 +2,34 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, Activity, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Activity, CheckCircle2, ExternalLink, TrendingUp, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Opportunity } from "@/types/database";
+import { AdjacentOpportunities } from "@/components/ui/adjacent-opportunities";
+import { EditorialCard } from "@/components/ui/editorial-card";
+import { DomainTag } from "@/components/ui/domain-tag";
+import { ConfidenceDots } from "@/components/ui/confidence-dots";
 
 const spring = { ease: [0.22, 1, 0.36, 1] as const };
 
 export function OpportunityContent({
   opportunity,
+  adjacent,
+  explorerCount,
+  wedges,
   buildMode,
   activeCommitmentId,
+  atCap,
   startEvaluation,
 }: {
   opportunity: Opportunity;
+  adjacent: Opportunity[];
+  explorerCount: number;
+  wedges: string[];
   buildMode: "self" | "ai";
   activeCommitmentId: string | null;
+  atCap: boolean;
   startEvaluation: (formData: FormData) => Promise<void>;
 }) {
   const [scrolled, setScrolled] = useState(false);
@@ -100,7 +112,7 @@ export function OpportunityContent({
             transition={{ duration: 0.7, ...spring }}
             className="relative z-10 w-full"
           >
-            <div className="flex items-center gap-2.5 mb-3.5">
+            <div className="flex items-center flex-wrap gap-2 mb-3.5">
               <div
                 className="px-2.5 py-1 rounded-full text-[11px] text-aos-text font-medium tracking-[0.04em] capitalize"
                 style={{
@@ -110,6 +122,9 @@ export function OpportunityContent({
               >
                 {opportunity.capability}
               </div>
+              {(opportunity.domains ?? []).slice(0, 3).map((d) => (
+                <DomainTag key={d} domain={d} size="sm" variant="outline" />
+              ))}
               <ConfidenceDots count={opportunity.confidence} />
             </div>
             <h1
@@ -145,6 +160,22 @@ export function OpportunityContent({
           />
           <ContentSection label="Why Now" body={opportunity.why_now} />
         </div>
+
+        {/* Market context — only renders when curated data exists */}
+        {(opportunity.market_hint || (opportunity.source_links?.length ?? 0) > 0) && (
+          <MarketContext
+            hint={opportunity.market_hint}
+            links={opportunity.source_links ?? []}
+          />
+        )}
+
+        {/* Who's exploring — anonymized wedge summaries from past Lens runs */}
+        {explorerCount > 0 && (
+          <WhosExploring count={explorerCount} wedges={wedges} />
+        )}
+
+        {/* Adjacent opportunities — graceful exit if this one isn't right */}
+        <AdjacentOpportunities opportunities={adjacent} />
       </div>
 
       {/* Sticky CTA */}
@@ -168,6 +199,26 @@ export function OpportunityContent({
             <CheckCircle2 size={17} strokeWidth={2.5} />
             {buildMode === "ai" ? "View your build" : "View your sprint"}
           </Link>
+        ) : atCap ? (
+          <Link
+            href="/upgrade"
+            className="flex flex-col items-center gap-1 w-full py-[15px] rounded-[18px] text-base font-semibold tracking-[-0.01em] transition-opacity hover:opacity-90"
+            style={{
+              background: "rgba(212, 165, 116, 0.12)",
+              border: "1px solid rgba(212, 165, 116, 0.35)",
+              color: "#D4A574",
+            }}
+          >
+            <span className="flex items-center gap-2">
+              Upgrade to Pro <ArrowRight size={16} strokeWidth={2.5} />
+            </span>
+            <span
+              className="text-[11px] font-normal tracking-normal"
+              style={{ color: "rgba(212, 165, 116, 0.7)" }}
+            >
+              You&rsquo;re at your sprint cap. Pro adds two more.
+            </span>
+          </Link>
         ) : (
           <form action={startEvaluation}>
             <input type="hidden" name="opportunityId" value={opportunity.id} />
@@ -183,22 +234,6 @@ export function OpportunityContent({
           </form>
         )}
       </div>
-    </div>
-  );
-}
-
-function ConfidenceDots({ count }: { count: number }) {
-  return (
-    <div className="flex gap-[3px] items-center">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <div
-          key={i}
-          className="w-[5px] h-[5px] rounded-full"
-          style={{
-            background: i <= count ? "#D4A574" : "rgba(245,242,237,0.12)",
-          }}
-        />
-      ))}
     </div>
   );
 }
@@ -255,5 +290,109 @@ function ContentSection({
         {body}
       </p>
     </div>
+  );
+}
+
+function MarketContext({
+  hint,
+  links,
+}: {
+  hint: string | null;
+  links: { label: string; url: string }[];
+}) {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.6, ...spring }}
+      className="px-6 pt-6"
+    >
+      <EditorialCard intensity="subtle" glow="gold">
+        <div className="p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp size={12} className="text-aos-tertiary" strokeWidth={2} />
+            <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-aos-tertiary">
+              Market context
+            </span>
+          </div>
+          {hint && (
+            <p className="font-serif text-aos-text text-[18px] leading-[1.4] tracking-[-0.01em]">
+              {hint}
+            </p>
+          )}
+          {links.length > 0 && (
+            <div className={`flex flex-wrap gap-1.5 ${hint ? "mt-4" : ""}`}>
+              {links.map((l) => (
+                <a
+                  key={l.url}
+                  href={l.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium tracking-[-0.01em] transition-all hover:!bg-aos-elevated hover:![border-color:var(--aos-border-strong)]"
+                  style={{
+                    background: "rgba(245,242,237,0.04)",
+                    border: "1px solid var(--aos-border)",
+                    color: "#F5F2ED",
+                  }}
+                >
+                  {l.label}
+                  <ExternalLink size={10} className="text-aos-secondary" strokeWidth={2} />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      </EditorialCard>
+    </motion.section>
+  );
+}
+
+function WhosExploring({ count, wedges }: { count: number; wedges: string[] }) {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.6, ...spring }}
+      className="px-6 pt-6"
+    >
+      <div className="flex items-end justify-between mb-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Users size={12} className="text-aos-tertiary" strokeWidth={2} />
+            <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-aos-tertiary">
+              Who&apos;s exploring
+            </span>
+          </div>
+          <h3 className="font-serif text-aos-text text-[20px] leading-tight tracking-[-0.02em]">
+            {count} {count === 1 ? "builder has" : "builders have"} run the Lens.
+          </h3>
+        </div>
+      </div>
+      {wedges.length > 0 && (
+        <div className="flex flex-col gap-2.5 mt-2">
+          {wedges.map((w, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: -8 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.45, delay: i * 0.08, ...spring }}
+              className="relative pl-4 py-1"
+            >
+              <div
+                aria-hidden
+                className="absolute left-0 top-0 bottom-0 w-px"
+                style={{ background: "rgba(212,165,116,0.35)" }}
+              />
+              <p className="font-serif italic text-[14px] text-aos-text leading-[1.55]">
+                &ldquo;{w}&rdquo;
+              </p>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </motion.section>
   );
 }

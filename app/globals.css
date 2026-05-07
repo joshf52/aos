@@ -8,6 +8,15 @@
   --aos-glass:        rgba(28, 28, 34, 0.7);
   --aos-accent-soft:  rgba(61, 184, 122, 0.12);
   --aos-gold-soft:    rgba(212, 165, 116, 0.12);
+
+  /* Domain tints — muted, low-saturation. Used for taxonomy labels only,
+     never for primary action color (that stays accent green / gold). */
+  --aos-tint-indigo:  rgba(123, 111, 224, 0.85);
+  --aos-tint-coral:   rgba(224, 134, 110, 0.85);
+  --aos-tint-teal:    rgba(94, 178, 178, 0.85);
+  --aos-tint-sage:    rgba(140, 184, 130, 0.85);
+  --aos-tint-bronze:  rgba(212, 165, 116, 0.85);
+  --aos-tint-moss:    rgba(110, 144, 100, 0.85);
 }
 
 @layer base {
@@ -35,6 +44,14 @@
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Confidence-dots hover stagger — empty dots warm to soft gold when their
+     parent .group is hovered, then settle back. Pure CSS; the per-dot
+     transition-delay set inline drives the stagger. */
+  .group:hover [data-confidence-dot="empty"],
+  .group:focus-visible [data-confidence-dot="empty"] {
+    background-color: rgba(212, 165, 116, 0.32) !important;
   }
 }
 

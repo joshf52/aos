@@ -3,11 +3,28 @@
 import { useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronRight, Sparkles } from "lucide-react";
+import { Zap, ChevronRight, Sparkles, Compass, Flag, Feather } from "lucide-react";
 import { GoldSeal } from "@/components/ui/gold-seal";
+import { EditorialCard } from "@/components/ui/editorial-card";
+import { NumberTicker } from "@/components/ui/number-ticker";
 
 const spring = { ease: [0.22, 1, 0.36, 1] as const };
 const SPRING = [0.22, 1, 0.36, 1] as const;
+
+type FocusInfo = {
+  source: "checkin" | "lens";
+  week: number;
+  text: string;
+} | null;
+
+type LogEvent = {
+  kind: "lens" | "start" | "checkin";
+  date: string;
+  label: string;
+  detail?: string;
+};
+
+type Quote = { line: string; attribution?: string };
 
 // Snake path connecting all 30 dots (3 rows × 10)
 const SNAKE_PATH = Array.from({ length: 30 })
@@ -29,6 +46,9 @@ export function DashboardContent({
   checkinDue,
   startDate,
   buildMode,
+  focus,
+  log,
+  quote,
   abandonCommitment,
 }: {
   commitmentId: string;
@@ -39,6 +59,9 @@ export function DashboardContent({
   checkinDue: boolean;
   startDate: string;
   buildMode: "self" | "ai";
+  focus: FocusInfo;
+  log: LogEvent[];
+  quote: Quote;
   abandonCommitment: (formData: FormData) => Promise<void>;
 }) {
   const [confirmAbandon, setConfirmAbandon] = useState(false);
@@ -93,29 +116,9 @@ export function DashboardContent({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.18, ...spring }}
-          className="mt-8 rounded-[26px] relative overflow-hidden"
-          style={{
-            background: "linear-gradient(160deg, #1A1A22 0%, #15151A 55%, #12121A 100%)",
-            border: "1px solid rgba(245,242,237,0.08)",
-            boxShadow: "0 0 0 1px rgba(61,184,122,0.03), 0 20px 40px rgba(0,0,0,0.35)",
-          }}
+          className="mt-8"
         >
-          {/* Subtle green ambient */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background: "radial-gradient(ellipse 70% 60% at 20% 40%, rgba(61,184,122,0.10) 0%, transparent 65%)",
-            }}
-          />
-          {/* Gold shimmer top-right */}
-          <div
-            className="absolute -top-8 right-0 w-48 h-48 pointer-events-none"
-            style={{
-              background: "radial-gradient(circle, rgba(212,165,116,0.08) 0%, transparent 65%)",
-              filter: "blur(24px)",
-            }}
-          />
-
+          <EditorialCard intensity="subtle" glow="dual">
           <div className="relative p-6">
             {/* 30-day SVG constellation */}
             <svg
@@ -193,11 +196,20 @@ export function DashboardContent({
               className="flex justify-between mt-2 pt-4"
               style={{ borderTop: "1px solid rgba(245,242,237,0.07)" }}
             >
-              <Stat label="Days in" value={daysIn} />
-              <Stat label={buildMode === "ai" ? "Updates" : "Check-ins"} value={`${checkinCount}/4`} />
-              <Stat label="Week" value={currentWeek} />
+              <Stat label="Days in" value={<NumberTicker value={daysIn} />} />
+              <Stat
+                label={buildMode === "ai" ? "Updates" : "Check-ins"}
+                value={
+                  <span>
+                    <NumberTicker value={checkinCount} />
+                    <span className="text-aos-tertiary">/4</span>
+                  </span>
+                }
+              />
+              <Stat label="Week" value={<NumberTicker value={currentWeek} />} />
             </div>
           </div>
+          </EditorialCard>
         </motion.div>
 
         {/* Check-in nudge */}
@@ -244,6 +256,86 @@ export function DashboardContent({
             </div>
           </motion.div>
         )}
+
+        {/* Today's focus */}
+        {focus && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: checkinDue ? 0.34 : 0.26, ...spring }}
+            className="mt-4"
+          >
+            <EditorialCard intensity="subtle" glow="green">
+              <div className="p-5">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <Compass size={12} className="text-aos-tertiary" strokeWidth={2} />
+                  <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-aos-tertiary">
+                    Today&apos;s focus
+                  </span>
+                </div>
+                <p
+                  className="font-serif italic text-aos-text leading-[1.4] tracking-[-0.01em]"
+                  style={{ fontSize: "clamp(18px, 4.5vw, 22px)" }}
+                >
+                  &ldquo;{focus.text}&rdquo;
+                </p>
+                <div className="text-[11px] text-aos-tertiary mt-3">
+                  {focus.source === "checkin"
+                    ? `From your week ${focus.week} check-in`
+                    : "From your Decision Lens — the smallest test"}
+                </div>
+              </div>
+            </EditorialCard>
+          </motion.div>
+        )}
+
+        {/* Builder log */}
+        {log.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{
+              duration: 0.6,
+              delay: (checkinDue ? 0.4 : 0.32) + (focus ? 0.06 : 0),
+              ...spring,
+            }}
+            className="mt-4 p-5 rounded-[20px]"
+            style={{
+              background: "#15151A",
+              border: "1px solid var(--aos-border)",
+            }}
+          >
+            <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.16em] font-medium mb-4">
+              Builder log
+            </div>
+            <BuilderLog events={log} />
+          </motion.div>
+        )}
+
+        {/* Daily quote */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.5, ...spring }}
+          className="mt-5 px-2 py-1 text-center"
+        >
+          <div
+            aria-hidden
+            className="mx-auto mb-3 w-[60px] h-px"
+            style={{ background: "rgba(212,165,116,0.25)" }}
+          />
+          <p
+            className="font-serif italic text-aos-text leading-[1.4] tracking-[-0.01em]"
+            style={{ fontSize: "clamp(16px, 4.5vw, 20px)" }}
+          >
+            &ldquo;{quote.line}&rdquo;
+          </p>
+          {quote.attribution && (
+            <div className="text-[10px] uppercase tracking-[0.16em] font-medium mt-2 text-aos-tertiary">
+              — {quote.attribution}
+            </div>
+          )}
+        </motion.div>
 
         {/* Covenant card */}
         <motion.div
@@ -403,7 +495,13 @@ export function DashboardContent({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
+function Stat({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div>
       <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.14em] font-medium mb-1">
@@ -413,5 +511,58 @@ function Stat({ label, value }: { label: string; value: string | number }) {
         {value}
       </div>
     </div>
+  );
+}
+
+function formatLogDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function BuilderLog({ events }: { events: LogEvent[] }) {
+  return (
+    <ol className="relative">
+      {/* Vertical rail */}
+      <div
+        aria-hidden
+        className="absolute left-[7px] top-1.5 bottom-1.5 w-px"
+        style={{ background: "rgba(245,242,237,0.08)" }}
+      />
+      {events.map((e, i) => {
+        const isLast = i === events.length - 1;
+        const Icon = e.kind === "lens" ? Compass : e.kind === "start" ? Feather : Flag;
+        const tint =
+          e.kind === "start" ? "#D4A574" : e.kind === "checkin" ? "#3DB87A" : "#8A8580";
+        return (
+          <li key={`${e.date}-${i}`} className={`relative pl-7 ${isLast ? "" : "pb-4"}`}>
+            <div
+              className="absolute left-0 top-[2px] w-[15px] h-[15px] rounded-full flex items-center justify-center"
+              style={{
+                background: "#15151A",
+                border: `1px solid ${tint}`,
+                boxShadow: `0 0 0 3px #15151A`,
+              }}
+            >
+              <Icon size={8} color={tint} strokeWidth={2.5} />
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[13px] text-aos-text font-medium tracking-[-0.01em]">
+                {e.label}
+              </span>
+              <span className="text-[10px] text-aos-tertiary uppercase tracking-[0.1em] tabular-nums shrink-0">
+                {formatLogDate(e.date)}
+              </span>
+            </div>
+            {e.detail && (
+              <p className="text-[12px] text-aos-secondary leading-[1.5] mt-0.5">
+                {e.detail}
+              </p>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }

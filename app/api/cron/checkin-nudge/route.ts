@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { sendCheckinNudge } from "@/lib/email/send";
+import { fetchSuppressedAddresses } from "@/lib/email/events";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -126,9 +127,13 @@ export async function GET(request: Request) {
     titleById.set(o.id, o.title);
   }
 
-  // 5) For each commitment, decide whether to nudge
+  // 5) Suppression: skip addresses that have ever bounced or complained
+  const suppressed = await fetchSuppressedAddresses();
+
+  // 6) For each commitment, decide whether to nudge
   let sent = 0;
   let considered = 0;
+  let skippedSuppressed = 0;
   const nowIso = new Date().toISOString();
   const userLastNudged = new Map<string, string>(); // throttle per user
 
@@ -156,6 +161,10 @@ export async function GET(request: Request) {
 
     const email = emailById.get(commitment.user_id);
     if (!email) continue;
+    if (suppressed.has(email.toLowerCase())) {
+      skippedSuppressed += 1;
+      continue;
+    }
 
     const title = titleById.get(commitment.opportunity_id) ?? "your sprint";
 
@@ -166,6 +175,7 @@ export async function GET(request: Request) {
       daysIn,
       opportunityTitle: title,
       commitmentId: commitment.id,
+      userId: commitment.user_id,
     });
 
     if (result.ok) {
@@ -178,5 +188,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ sent, considered });
+  return NextResponse.json({ sent, considered, skippedSuppressed });
 }

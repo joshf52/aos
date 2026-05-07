@@ -41,6 +41,7 @@ async function saveAdvantage(formData: FormData): Promise<void> {
       const result = await sendWelcome({
         to: user.email,
         name: displayName(user.email),
+        userId: user.id,
       });
       if (result.ok) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

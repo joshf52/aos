@@ -38,11 +38,43 @@ function scoreOpportunity(
   return opp.confidence + overlap * 2;
 }
 
+function calcDaysIn(startedAt: string): number {
+  const diff = Math.floor(
+    (Date.now() - new Date(startedAt).getTime()) / (1000 * 60 * 60 * 24)
+  );
+  return Math.min(Math.max(diff + 1, 1), 30);
+}
+
+type ActiveCommitmentRow = {
+  id: string;
+  opportunity_id: string;
+  started_at: string;
+};
+
+type ShippedRow = {
+  completed_at: string | null;
+  shipped_url: string;
+  opportunity: { title: string; capability: string } | null;
+};
+
+export type ShippedCard = {
+  title: string;
+  capability: string;
+  url: string;
+  shippedAt: string;
+};
+
+export type TrendingSignal = {
+  domain: string;
+  label: string;
+  count: number;
+};
+
 export default async function FeedPage() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [oppsResult, profileResult] = await Promise.all([
+  const [oppsResult, profileResult, commitmentResult, shippedResult] = await Promise.all([
     supabase
       .from("opportunities")
       .select("*")
@@ -52,19 +84,68 @@ export default async function FeedPage() {
     user
       ? (supabase
           .from("profiles")
-          .select("domains")
+          .select("domains, build_mode")
           .eq("id", user.id)
           .single() as unknown as Promise<{
-          data: { domains: string[] | null } | null;
+          data: { domains: string[] | null; build_mode: string | null } | null;
         }>)
       : Promise.resolve({ data: null }),
+    user
+      ? (supabase
+          .from("commitments")
+          .select("id, opportunity_id, started_at")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .order("started_at", { ascending: false })
+          .limit(1) as unknown as Promise<{
+          data: ActiveCommitmentRow[] | null;
+        }>)
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("commitments")
+      .select("completed_at, shipped_url, opportunity:opportunities(title, capability)")
+      .not("shipped_url", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(3) as unknown as Promise<{ data: ShippedRow[] | null }>,
   ]);
 
-  const userDomains = new Set<string>(
-    (profileResult as { data: { domains: string[] | null } | null }).data
-      ?.domains ?? []
-  );
+  const profile = (profileResult as {
+    data: { domains: string[] | null; build_mode: string | null } | null;
+  }).data;
+  const userDomains = new Set<string>(profile?.domains ?? []);
   const allOpps = oppsResult.data ?? [];
+
+  const activeCommitment = (commitmentResult as { data: ActiveCommitmentRow[] | null }).data?.[0] ?? null;
+
+  let sprint: {
+    commitmentId: string;
+    opportunityTitle: string;
+    daysIn: number;
+    checkinDue: boolean;
+    buildMode: "self" | "ai";
+  } | null = null;
+
+  if (activeCommitment) {
+    const opp = allOpps.find((o) => o.id === activeCommitment.opportunity_id);
+    const daysIn = calcDaysIn(activeCommitment.started_at);
+    const currentWeek = Math.min(Math.ceil(daysIn / 7), 4);
+
+    const { data: checkins } = (await supabase
+      .from("checkins")
+      .select("id")
+      .eq("commitment_id", activeCommitment.id)) as unknown as {
+      data: { id: string }[] | null;
+    };
+    const checkinCount = checkins?.length ?? 0;
+
+    sprint = {
+      commitmentId: activeCommitment.id,
+      opportunityTitle: opp?.title ?? "Your sprint",
+      daysIn,
+      checkinDue: checkinCount < currentWeek,
+      buildMode: profile?.build_mode === "ai" ? "ai" : "self",
+    };
+  }
 
   // Rank: score desc, then confidence desc, then most recent
   const ranked = [...allOpps].sort((a, b) => {
@@ -99,12 +180,44 @@ export default async function FeedPage() {
     } you picked.`;
   }
 
+  // Trending signals — count domain occurrences across all active opps,
+  // top 4 wins. Gives the feed a "what's hot this week" pulse without
+  // needing real time-series data.
+  const domainCounts = new Map<string, number>();
+  for (const opp of allOpps) {
+    for (const d of opp.domains ?? []) {
+      domainCounts.set(d, (domainCounts.get(d) ?? 0) + 1);
+    }
+  }
+  const trending: TrendingSignal[] = Array.from(domainCounts.entries())
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([domain, count]) => ({
+      domain,
+      label: DOMAIN_LABELS[domain] ?? domain,
+      count,
+    }));
+
+  // Just shipped — anonymized recent ships. Social proof that this thing works.
+  const shipped: ShippedCard[] = (shippedResult.data ?? [])
+    .filter((s) => s.opportunity && s.shipped_url && s.completed_at)
+    .map((s) => ({
+      title: s.opportunity!.title,
+      capability: s.opportunity!.capability,
+      url: s.shipped_url,
+      shippedAt: s.completed_at!,
+    }));
+
   return (
     <FeedContent
       opportunities={opportunities}
       dateLabel={formatDate()}
       subtitle={subtitle}
       userDomains={domainsArr}
+      sprint={sprint}
+      trending={trending}
+      shipped={shipped}
     />
   );
 }

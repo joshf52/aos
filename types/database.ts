@@ -1,8 +1,21 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+export type SourceLink = { label: string; url: string };
+
 export type BuildMode = "self" | "ai";
 export type ReputationStage = "Explorer" | "Builder" | "Shipper" | "Proven";
 export type CommitmentStatus = "active" | "completed" | "abandoned";
+export type Tier = "free" | "pro";
+export type EmailKind = "welcome" | "checkin_nudge";
+export type EmailStatus =
+  | "sent"
+  | "failed"
+  | "delivered"
+  | "opened"
+  | "clicked"
+  | "bounced"
+  | "complained"
+  | "delivery_delayed";
 
 export interface Database {
   public: {
@@ -21,6 +34,9 @@ export interface Database {
           build_mode: BuildMode | null;
           reputation_stage: ReputationStage;
           active_commitment_count: number;
+          tier: Tier;
+          pro_until: string | null;
+          stripe_customer_id: string | null;
         };
         Insert: {
           id: string;
@@ -34,6 +50,9 @@ export interface Database {
           build_mode?: BuildMode | null;
           reputation_stage?: ReputationStage;
           active_commitment_count?: number;
+          tier?: Tier;
+          pro_until?: string | null;
+          stripe_customer_id?: string | null;
         };
         Update: {
           id?: string;
@@ -47,6 +66,9 @@ export interface Database {
           build_mode?: BuildMode | null;
           reputation_stage?: ReputationStage;
           active_commitment_count?: number;
+          tier?: Tier;
+          pro_until?: string | null;
+          stripe_customer_id?: string | null;
         };
       };
       opportunities: {
@@ -65,6 +87,8 @@ export interface Database {
           builder_count: number;
           is_active: boolean;
           domains: string[];
+          market_hint: string | null;
+          source_links: SourceLink[];
         };
         Insert: {
           id?: string;
@@ -81,6 +105,8 @@ export interface Database {
           builder_count?: number;
           is_active?: boolean;
           domains?: string[];
+          market_hint?: string | null;
+          source_links?: SourceLink[];
         };
         Update: {
           id?: string;
@@ -97,6 +123,8 @@ export interface Database {
           builder_count?: number;
           is_active?: boolean;
           domains?: string[];
+          market_hint?: string | null;
+          source_links?: SourceLink[];
         };
       };
       decision_lenses: {
@@ -233,6 +261,38 @@ export interface Database {
           properties?: Json | null;
         };
       };
+      email_events: {
+        Row: {
+          id: string;
+          created_at: string;
+          user_id: string | null;
+          email: string;
+          kind: EmailKind;
+          status: EmailStatus;
+          resend_id: string | null;
+          metadata: Json | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          user_id?: string | null;
+          email: string;
+          kind: EmailKind;
+          status: EmailStatus;
+          resend_id?: string | null;
+          metadata?: Json | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          user_id?: string | null;
+          email?: string;
+          kind?: EmailKind;
+          status?: EmailStatus;
+          resend_id?: string | null;
+          metadata?: Json | null;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -246,3 +306,4 @@ export type Opportunity = Database["public"]["Tables"]["opportunities"]["Row"];
 export type DecisionLens = Database["public"]["Tables"]["decision_lenses"]["Row"];
 export type Commitment = Database["public"]["Tables"]["commitments"]["Row"];
 export type Checkin = Database["public"]["Tables"]["checkins"]["Row"];
+export type EmailEvent = Database["public"]["Tables"]["email_events"]["Row"];

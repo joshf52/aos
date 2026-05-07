@@ -4,6 +4,11 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Settings, ChevronRight, ExternalLink } from "lucide-react";
 import { GoldSeal } from "@/components/ui/gold-seal";
+import { EditorialCard } from "@/components/ui/editorial-card";
+import { ReputationLadder } from "@/components/ui/reputation-ladder";
+import { DomainTag } from "@/components/ui/domain-tag";
+import { NumberTicker } from "@/components/ui/number-ticker";
+import type { ReputationStage } from "@/types/database";
 
 type ShippedItem = {
   id: string;
@@ -28,29 +33,20 @@ function trimUrl(url: string | null): string {
 
 const SPRING = [0.22, 1, 0.36, 1] as const;
 
-const DOMAIN_LABELS: Record<string, string> = {
-  ai: "AI & ML",
-  creator: "Creator Economy",
-  b2b: "B2B SaaS",
-  devtools: "Dev Tools",
-  health: "Health",
-  finance: "Finance",
-  education: "Education",
-  productivity: "Productivity",
-  commerce: "E-commerce",
-  community: "Community",
-  media: "Media",
-  climate: "Climate",
-};
-
-function StatBlock({ label, value }: { label: string; value: string | number }) {
+function StatBlock({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
   return (
     <div>
       <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.14em] font-medium mb-1">
         {label}
       </div>
       <div className="text-[26px] text-aos-text font-medium tracking-[-0.03em] tabular-nums leading-none">
-        {value}
+        <NumberTicker value={value} />
       </div>
     </div>
   );
@@ -138,40 +134,9 @@ export function ProfileContent({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1, ease: SPRING }}
-          className="mt-7 rounded-[26px] relative overflow-hidden"
-          style={{
-            background: "linear-gradient(160deg, #1E1E26 0%, #15151A 55%, #12121A 100%)",
-            border: "1px solid rgba(245,242,237,0.08)",
-            boxShadow: "0 0 0 1px rgba(212,165,116,0.04), 0 20px 40px rgba(0,0,0,0.35)",
-          }}
+          className="mt-7"
         >
-          {/* Gold glow top-right */}
-          <div
-            className="absolute -top-10 -right-10 w-52 h-52 pointer-events-none"
-            style={{
-              background: "radial-gradient(circle, rgba(212,165,116,0.18) 0%, transparent 65%)",
-              filter: "blur(24px)",
-            }}
-          />
-          {/* Green glow bottom-left */}
-          <div
-            className="absolute -bottom-8 -left-8 w-40 h-40 pointer-events-none"
-            style={{
-              background: "radial-gradient(circle, rgba(61,184,122,0.08) 0%, transparent 65%)",
-              filter: "blur(20px)",
-            }}
-          />
-          {/* Dot grid */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage: "radial-gradient(circle, rgba(245,242,237,0.07) 1px, transparent 1px)",
-              backgroundSize: "22px 22px",
-              maskImage: "radial-gradient(ellipse at 80% 20%, black 0%, transparent 60%)",
-              WebkitMaskImage: "radial-gradient(ellipse at 80% 20%, black 0%, transparent 60%)",
-            }}
-          />
-
+          <EditorialCard intensity="feature" glow="dual" dotGrid>
           <div className="relative p-6">
             {/* Wax seal avatar */}
             <div className="mb-5">
@@ -204,6 +169,28 @@ export function ProfileContent({
               <StatBlock label="Check-ins" value={checkinCount} />
             </div>
           </div>
+          </EditorialCard>
+        </motion.div>
+
+        {/* Reputation ladder */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.16, ease: SPRING }}
+          className="mt-4 p-5 rounded-[20px]"
+          style={{
+            background: "#15151A",
+            border: "1px solid var(--aos-border)",
+          }}
+        >
+          <div className="text-[10px] text-aos-tertiary uppercase tracking-[0.16em] font-medium mb-5">
+            Reputation
+          </div>
+          <ReputationLadder
+            stage={(reputationStage as ReputationStage) ?? "Explorer"}
+            totalCommitments={totalCommitments}
+            shippedCount={shippedCount}
+          />
         </motion.div>
 
         {/* Active sprint */}
@@ -318,22 +305,13 @@ export function ProfileContent({
                 Edit
               </Link>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {domains.slice(0, 6).map((id) => (
-                <span
-                  key={id}
-                  className="px-3 py-1.5 rounded-full text-[11px] font-medium text-aos-text"
-                  style={{
-                    background: "#1C1C22",
-                    border: "1px solid rgba(245,242,237,0.07)",
-                  }}
-                >
-                  {DOMAIN_LABELS[id] ?? id}
-                </span>
+                <DomainTag key={id} domain={id} size="sm" variant="soft" />
               ))}
               {domains.length > 6 && (
                 <span
-                  className="px-3 py-1.5 rounded-full text-[11px] font-medium text-aos-secondary"
+                  className="px-2 py-[3px] rounded-full text-[10px] font-medium text-aos-secondary uppercase tracking-[0.12em]"
                   style={{
                     background: "#1C1C22",
                     border: "1px solid rgba(245,242,237,0.07)",

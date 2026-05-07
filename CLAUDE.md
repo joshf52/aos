@@ -267,37 +267,24 @@ Routes to add:
 ## Current Status (Honest Assessment)
 
 ### What works
-- Database schema written
-- 5 real opportunities researched and seeded
-- Auth scaffolding (Supabase + OAuth)
-- Routing skeleton for landing, signup, login, opportunity preview, feed, opportunity detail, lens, dashboard, checkin
-- TypeScript types matching the schema
-- Server-side Supabase client, browser client, middleware
-- Server Action for the commit flow
+- **Database** — migrations 001–004 applied: initial schema, profile extensions (domains, audience, commitment_level, build_mode), opportunity domain tagging for personalization, email-state columns (welcomed_at, last_nudged_at). 5 real opportunities seeded. RLS on user tables; auth trigger creates profiles on signup.
+- **Auth** — Supabase email + Google + GitHub OAuth. Callback redirects to onboarding when the profile is incomplete.
+- **Onboarding flow** — all 5 questions live (`/onboarding/build-mode`, `/domains`, `/audience`, `/commitment`, `/advantage`) plus the Personalizing constellation reveal.
+- **Core screens, redesigned** — landing, feed (personalized by user-selected domains), opportunity detail, Lens wizard (full-screen serif), Sprint Dashboard, weekly check-in. Dark warm-ink palette, editorial serif, spring motion, hover/focus-ring audit applied across interactive elements.
+- **The Ceremony** — full-screen route at `/commit/[id]/ceremony` with card fan-in, document fold, hold-to-sign, gold seal, bell tone, gold-dust shimmer, haptic feedback.
+- **Non-builder path** — `/commit/[id]/ai-build` handoff screen; feed and opportunity detail branch on `build_mode`.
+- **Profile + Preferences** — `/profile` (the "You" tab) and `/preferences` with bottom-sheet edits that reuse onboarding components. Build mode is mutable.
+- **Ship flow** — `/commit/[id]/ship` for self-reporting a shipped URL.
+- **Email** — `lib/email/` (Resend client + templates) sends transactional welcome and weekly check-in nudges. Cron at `/api/cron/checkin-nudge` runs via `vercel.json`. Idempotency via `welcomed_at` / `last_nudged_at`.
+- **Reputation** — `lib/reputation.ts` derives Explorer / Builder / Shipper / Proven from actions.
 
-### What needs visual rebuild
-**Every page in `app/` was built before the visual direction was finalized.** The structure is right. The design tokens, typography, motion, and color palette do not match the prototype.
-
-Specifically vs. the final design:
-- Light theme everywhere → should be dark warm-ink
-- Sans-serif headings → brand moments need editorial serif
-- No animations → every transition should use framer-motion springs
-- Generic shadcn buttons and cards → custom dark components
-- Lens wizard exists but lacks the full-screen serif "koan" treatment
-- Dashboard exists but has no constellation visualization for the sprint
-- **No Ceremony anywhere — the wow moment doesn't exist in the web codebase**
-
-### What's not built at all
-- The 5-question onboarding flow (now includes build mode as first question)
-- The Personalizing constellation reveal
-- Profile / "You" page
-- Preferences with bottom-sheet edit pattern
-- The Ceremony interaction
-- Non-builder path: AI Build handoff screen, AI build service integration
-- Stripe billing
-- Email notifications
-- Founder analytics
-- Profile schema fields for domains/audience/commitment_level/build_mode
+### What's not built yet
+- Founder analytics page (`/founders` with env-gated allowlist)
+- `email_events` table + writes (foundation for Resend webhook + email analytics)
+- Resend webhook (`/api/webhooks/resend`) for delivery / bounce / complaint events
+- Stripe Pro tier — `profiles.tier`, `pro_until`, `stripe_customer_id`, Checkout, `/api/webhooks/stripe`, free 1 / Pro 3 active-commitment cap, upgrade CTA
+- Phase 2 automated signal collection for opportunities (still manually curated)
+- AI build service integration (handoff exists; the actual build pipeline is TBD)
 
 ### Naming
 Still undecided. Code uses "AOS" everywhere.
@@ -387,4 +374,4 @@ When designing screens:
 
 ---
 
-*Last updated: April 2026. Status: Two-codebase reconciliation pending. Non-builder / AI build path added as first-class user type. Next major task is Phase 0 (scaffold creation) followed by Phase 1 (design system port).*
+*Last updated: May 2026. Status: Phases 0–5 substantially shipped — onboarding, redesigned core screens, the Ceremony, profile/preferences, transactional email + check-in nudge cron are all live. Active queue: founder analytics, email events + Resend webhook, Stripe Pro tier scaffolding (see `FOLLOWUPS.md`).*

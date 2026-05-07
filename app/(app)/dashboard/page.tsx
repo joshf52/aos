@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { DashboardContent } from "./dashboard-content";
 import { recomputeReputation } from "@/lib/reputation";
+import { dailyQuote } from "@/lib/quotes";
 import Link from "next/link";
 
 async function abandonCommitment(formData: FormData) {
@@ -43,7 +44,19 @@ type CommitmentRow = {
   started_at: string;
 };
 
-type CheckinRow = { id: string; week_number: number };
+type CheckinRow = {
+  id: string;
+  week_number: number;
+  created_at: string;
+  next_focus: string;
+  shipped_learned: string;
+};
+
+type LensRow = {
+  answer_4: string | null;
+  answer_5: string | null;
+  completed_at: string | null;
+};
 
 function calcDaysIn(startedAt: string): number {
   const start = new Date(startedAt);
@@ -110,7 +123,7 @@ export default async function DashboardPage() {
     );
   }
 
-  const [oppResult, checkinsResult] = await Promise.all([
+  const [oppResult, checkinsResult, lensResult] = await Promise.all([
     supabase
       .from("opportunities")
       .select("title")
@@ -118,16 +131,53 @@ export default async function DashboardPage() {
       .single() as unknown as Promise<{ data: { title: string } | null }>,
     supabase
       .from("checkins")
-      .select("id, week_number")
-      .eq("commitment_id", commitment.id) as unknown as Promise<{
+      .select("id, week_number, created_at, next_focus, shipped_learned")
+      .eq("commitment_id", commitment.id)
+      .order("week_number", { ascending: true }) as unknown as Promise<{
       data: CheckinRow[] | null;
     }>,
+    supabase
+      .from("decision_lenses")
+      .select("answer_4, answer_5, completed_at")
+      .eq("id", commitment.lens_id)
+      .single() as unknown as Promise<{ data: LensRow | null }>,
   ]);
 
   const daysIn = calcDaysIn(commitment.started_at);
   const currentWeek = Math.min(Math.ceil(daysIn / 7), 4);
-  const checkinCount = checkinsResult.data?.length ?? 0;
+  const checkins = checkinsResult.data ?? [];
+  const checkinCount = checkins.length;
   const checkinDue = checkinCount < currentWeek;
+
+  // Today's focus: most recent check-in's next_focus, else lens "smallest test"
+  // (answer_4), else a default prompt. The lens completes before commitment is
+  // created, so answer_4 is always populated for an active commitment.
+  const lastCheckin = checkins[checkins.length - 1] ?? null;
+  const focus = lastCheckin?.next_focus
+    ? { source: "checkin" as const, week: lastCheckin.week_number, text: lastCheckin.next_focus }
+    : lensResult.data?.answer_4
+    ? { source: "lens" as const, week: 0, text: lensResult.data.answer_4 }
+    : null;
+
+  // Builder log: lens completion → sprint start → each check-in. Newest last.
+  const log: { kind: "lens" | "start" | "checkin"; date: string; label: string; detail?: string }[] = [];
+  if (lensResult.data?.completed_at) {
+    log.push({ kind: "lens", date: lensResult.data.completed_at, label: "Decision Lens completed" });
+  }
+  log.push({
+    kind: "start",
+    date: commitment.started_at,
+    label: "Sprint began",
+    detail: "Covenant signed",
+  });
+  for (const c of checkins) {
+    log.push({
+      kind: "checkin",
+      date: c.created_at,
+      label: `Week ${c.week_number} check-in`,
+      detail: c.shipped_learned.slice(0, 80) + (c.shipped_learned.length > 80 ? "…" : ""),
+    });
+  }
 
   return (
     <DashboardContent
@@ -139,6 +189,9 @@ export default async function DashboardPage() {
       checkinDue={checkinDue}
       startDate={formatStartDate(commitment.started_at)}
       buildMode={buildMode}
+      focus={focus}
+      log={log}
+      quote={dailyQuote()}
       abandonCommitment={abandonCommitment}
     />
   );

@@ -365,6 +365,14 @@ Failure modes:
 - **Ask before adding dependencies.** The stack is intentionally small.
 - **Update this file when decisions change.** It's the source of truth.
 
+### Default to acting, not asking.
+When the next step is obvious and locally reversible (creating files, refactoring, building missing stubs, choosing between similar approaches), just do it. Surface the plan once, execute end-to-end, report at the end. Only stop to ask before:
+- **Destructive or irreversible actions** — force-push to main, dropping tables, deleting branches, `rm -rf`, `git reset --hard`.
+- **External side-effects** — sending email, paid API calls, posting to GitHub/Slack/PRs, modifying shared infrastructure.
+- **Genuinely ambiguous intent** — where the possible answers fork the work in non-trivially different directions.
+
+Factual gaps are *not* intent ambiguity. If a file the user expects to exist doesn't, build the obvious minimal version and continue. Updates stay terse: one sentence per status change, no trailing summaries beyond what changed and what's next.
+
 When designing screens:
 - Lead with the editorial question or thesis. Wrap utility around it.
 - Use serif for the brand moment. Sans for the action. Mono for the data.

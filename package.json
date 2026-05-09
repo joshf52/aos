@@ -11,6 +11,8 @@
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.14.0",
     "next": "14.2.35",
@@ -18,6 +20,7 @@
     "react-dom": "^18",
     "react-hook-form": "^7.74.0",
     "resend": "^6.12.2",
+    "tailwind-merge": "^3.5.0",
     "zod": "^4.4.1"
   },
   "devDependencies": {

@@ -1,435 +1,259 @@
-"use client";
-
 import Link from "next/link";
-import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { ArrowRight } from "lucide-react";
+import { FadeIn, Stagger } from "@/components/motion";
+import { Button } from "@/components/ui/button";
 
-const SPRING = [0.22, 1, 0.36, 1] as const;
-const PILLS = ["5 opportunities weekly", "Decision Lens", "30-day sprint"];
+const MOVEMENTS = [
+  {
+    title: "The Opportunity Engine",
+    body: "Five hand-selected gaps a week. Real demand signals, real wedges — never another idea list.",
+  },
+  {
+    title: "The Decision Lens",
+    body: "Five questions, one screen each, no skipping. Strategic clarity before a single line of code.",
+  },
+  {
+    title: "The Ceremony",
+    body: "A thirty-day covenant, signed by hand. Press, hold, seal. The moment your conviction becomes a calendar.",
+  },
+];
+
+const SAMPLE_OPPORTUNITIES = [
+  {
+    category: "AI · Developer Tools",
+    confidence: 4,
+    title: "AI-native research tools for independent analysts",
+    gap: "Solo analysts cobble together ChatGPT, Notion, and Excel to do work that should feel like one continuous thread.",
+    signal: "47 builders watching",
+  },
+  {
+    category: "Finance · Solo Founders",
+    confidence: 4,
+    title: "Tax-loss harvesting for one-person businesses",
+    gap: "Wealthfront does this for individuals. Nobody does it for the founder filing as an S-corp with three messy accounts.",
+    signal: "Mentioned 12× in IndieHackers",
+  },
+  {
+    category: "Tools · Creative Direction",
+    confidence: 3,
+    title: "Low-bandwidth writing tools for creative directors",
+    gap: "Senior creatives keep paying for Notion to write three sentences a day. They want a single page, beautiful type, no apps.",
+    signal: "Twitter thread, 2.4k likes",
+  },
+  {
+    category: "Operations · Studios",
+    confidence: 4,
+    title: "The first invoicing tool that respects retainer math",
+    gap: "Studios run on retainers and overruns. Every existing tool assumes hourly or fixed — they patch with spreadsheets.",
+    signal: "11 inbound from a single LinkedIn post",
+  },
+];
 
 export default function LandingPage() {
-  // Mouse parallax — normalized -1..1 across the viewport
-  const mx = useMotionValue(0);
-  const my = useMotionValue(0);
-  const px = useSpring(mx, { damping: 28, stiffness: 90, mass: 0.6 });
-  const py = useSpring(my, { damping: 28, stiffness: 90, mass: 0.6 });
-
-  // Different parallax depths for layering
-  const xNear = useTransform(px, [-1, 1], [-22, 22]);
-  const yNear = useTransform(py, [-1, 1], [-22, 22]);
-  const xMid = useTransform(px, [-1, 1], [-14, 14]);
-  const yMid = useTransform(py, [-1, 1], [-14, 14]);
-  const xFar = useTransform(px, [-1, 1], [-7, 7]);
-  const yFar = useTransform(py, [-1, 1], [-7, 7]);
-
-  // Spotlight position (in px)
-  const spotX = useTransform(px, [-1, 1], ["20%", "80%"]);
-  const spotY = useTransform(py, [-1, 1], ["25%", "75%"]);
-  const spotlight = useTransform(
-    [spotX, spotY] as never,
-    ([x, y]: string[]) =>
-      `radial-gradient(circle 380px at ${x} ${y}, rgba(212,165,116,0.08), transparent 70%)`
-  );
-
-  function handleMouse(e: React.MouseEvent<HTMLElement>) {
-    const { innerWidth, innerHeight } = window;
-    mx.set((e.clientX / innerWidth - 0.5) * 2);
-    my.set((e.clientY / innerHeight - 0.5) * 2);
-  }
-
   return (
-    <main
-      onMouseMove={handleMouse}
-      onMouseLeave={() => {
-        mx.set(0);
-        my.set(0);
-      }}
-      className="min-h-dvh bg-[#0A0A0C] relative flex flex-col items-center justify-center overflow-hidden"
-    >
-      {/* ── Layer 0: grain texture ── */}
+    <main className="relative min-h-dvh bg-aos-bg overflow-x-hidden">
+      {/* Grain — restraint, not gloss */}
       <div
+        aria-hidden
         className="absolute inset-0 z-0 pointer-events-none"
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-          opacity: 0.032,
+          opacity: 0.03,
         }}
       />
 
-      {/* ── Layer 0.5: cursor spotlight (subtle) ── */}
-      <motion.div
-        aria-hidden
-        className="absolute inset-0 z-[1] pointer-events-none hidden md:block"
-        style={{ background: spotlight }}
-      />
-
-      {/* ── Layer 1: animated blobs (with subtle far parallax) ── */}
-      <motion.div
-        style={{ x: xFar, y: yFar }}
-        className="absolute inset-0 z-[1] pointer-events-none overflow-hidden"
-      >
-        <motion.div
-          animate={{ x: [0, 50, -30, 0], y: [0, -40, 30, 0] }}
-          transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-24 -left-24 w-[520px] h-[520px] rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(61,184,122,0.20) 0%, transparent 60%)",
-            filter: "blur(70px)",
-          }}
-        />
-        <motion.div
-          animate={{ x: [0, -40, 30, 0], y: [0, 50, -20, 0] }}
-          transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -bottom-24 -right-24 w-[480px] h-[480px] rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(212,165,116,0.18) 0%, transparent 60%)",
-            filter: "blur(70px)",
-          }}
-        />
-        <motion.div
-          animate={{ x: [0, -60, 20, 0], y: [0, 40, -50, 0] }}
-          transition={{ duration: 17, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-[8%] -right-16 w-[320px] h-[320px] rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(61,184,122,0.12) 0%, transparent 60%)",
-            filter: "blur(55px)",
-          }}
-        />
-        <motion.div
-          animate={{ x: [0, 35, -15, 0], y: [0, -55, 40, 0] }}
-          transition={{ duration: 30, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-[35%] -left-24 w-[300px] h-[300px] rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(212,165,116,0.10) 0%, transparent 60%)",
-            filter: "blur(55px)",
-          }}
-        />
-        <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full pointer-events-none"
-          style={{
-            background: "radial-gradient(circle, rgba(61,184,122,0.035) 0%, transparent 55%)",
-          }}
-        />
-      </motion.div>
-
-      {/* ── Layer 2: floating UI fragments (with mid/near parallax) ── */}
-      <div className="absolute inset-0 z-[2] pointer-events-none overflow-hidden">
-        {/* Opportunity card — left edge, mid layer */}
-        <motion.div
-          style={{ x: xMid, y: yMid }}
-          className="absolute -left-14 top-[22%]"
-        >
-          <motion.div
-            initial={{ rotate: -10 }}
-            animate={{ y: [0, -14, 0], rotate: [-10, -8, -10] }}
-            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
-            className="w-[210px]"
-            style={{
-              background: "#1C1C22",
-              border: "1px solid rgba(245,242,237,0.09)",
-              borderRadius: 14,
-              padding: 16,
-              opacity: 0.22,
-              filter: "blur(1px)",
-              boxShadow: "0 12px 30px rgba(0,0,0,0.4)",
-            }}
-          >
-            <div style={{ fontSize: 8, color: "#D4A574", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 7, fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500 }}>
-              AI &amp; Developer Tools
-            </div>
-            <div style={{ fontSize: 13, color: "#F5F2ED", lineHeight: 1.3, fontFamily: "var(--font-cormorant), Georgia, serif" }}>
-              The gap in AI-native research tools for independent analysts
-            </div>
-            <div style={{ display: "flex", gap: 3, marginTop: 10 }}>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: i <= 4 ? "#D4A574" : "rgba(245,242,237,0.14)" }} />
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
-
-        {/* Lens question — right edge, mid layer */}
-        <motion.div
-          style={{ x: xMid, y: yMid }}
-          className="absolute -right-12 top-[30%]"
-        >
-          <motion.div
-            initial={{ rotate: 9 }}
-            animate={{ y: [0, 16, 0], rotate: [9, 7, 9] }}
-            transition={{ duration: 11, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-            className="w-[190px]"
-            style={{
-              background: "#15151A",
-              border: "1px solid rgba(245,242,237,0.08)",
-              borderRadius: 14,
-              padding: 16,
-              opacity: 0.22,
-              filter: "blur(1px)",
-              boxShadow: "0 12px 30px rgba(0,0,0,0.4)",
-            }}
-          >
-            <div style={{ fontSize: 8, color: "#3DB87A", textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 9, fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500 }}>
-              Step 3 · Wedge
-            </div>
-            <div style={{ fontSize: 13, color: "#F5F2ED", lineHeight: 1.35, fontFamily: "var(--font-cormorant), Georgia, serif", fontStyle: "italic" }}>
-              Why would they switch to you?
-            </div>
-          </motion.div>
-        </motion.div>
-
-        {/* Covenant document — bottom right, near layer (most parallax) */}
-        <motion.div
-          style={{ x: xNear, y: yNear }}
-          className="absolute right-[5%] bottom-[10%]"
-        >
-          <motion.div
-            initial={{ rotate: 5 }}
-            animate={{ y: [0, -10, 0], rotate: [5, 7, 5] }}
-            transition={{ duration: 13, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-            className="w-[150px]"
-            style={{
-              background: "#FAF7F0",
-              border: "1px solid rgba(212,165,116,0.18)",
-              borderRadius: 4,
-              padding: 14,
-              opacity: 0.16,
-              filter: "blur(1.5px)",
-              boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
-            }}
-          >
-            <div style={{ fontSize: 7, color: "#8B7E5C", textTransform: "uppercase", letterSpacing: "0.2em", textAlign: "center", marginBottom: 7, fontFamily: "var(--font-jakarta), sans-serif" }}>
-              Builder&apos;s Covenant
-            </div>
-            <div style={{ height: 1, background: "#d4cdb8", marginBottom: 8 }} />
-            <div style={{ fontSize: 10, color: "#3a3a3a", lineHeight: 1.4, fontFamily: "var(--font-cormorant), Georgia, serif", fontStyle: "italic", textAlign: "center" }}>
-              I commit, with full intention, for thirty days.
-            </div>
-          </motion.div>
-        </motion.div>
-
-        {/* Stats pill — bottom left, near layer */}
-        <motion.div
-          style={{ x: xNear, y: yNear }}
-          className="absolute left-[4%] bottom-[18%]"
-        >
-          <motion.div
-            initial={{ rotate: -4 }}
-            animate={{ y: [0, 8, 0], rotate: [-4, -6, -4] }}
-            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 3 }}
-            style={{
-              background: "rgba(61,184,122,0.08)",
-              border: "1px solid rgba(61,184,122,0.2)",
-              borderRadius: 100,
-              padding: "8px 14px",
-              opacity: 0.4,
-              filter: "blur(0.5px)",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              boxShadow: "0 8px 20px rgba(0,0,0,0.3)",
-            }}
-          >
-            <motion.div
-              animate={{ opacity: [0.5, 1, 0.5], scale: [0.85, 1, 0.85] }}
-              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-              style={{ width: 6, height: 6, borderRadius: "50%", background: "#3DB87A" }}
-            />
-            <span style={{ fontSize: 10, color: "#3DB87A", fontFamily: "var(--font-jakarta), sans-serif", fontWeight: 500, letterSpacing: "0.04em" }}>
-              47 builders active
-            </span>
-          </motion.div>
-        </motion.div>
-      </div>
-
-      {/* ── Layer 3: edge vignette ── */}
+      {/* One quiet ambient gold — the only atmospheric element */}
       <div
-        className="absolute inset-0 z-[3] pointer-events-none"
+        aria-hidden
+        className="absolute -top-40 left-1/2 -translate-x-1/2 w-[820px] h-[820px] z-0 pointer-events-none"
         style={{
-          background: "radial-gradient(ellipse 80% 80% at center, transparent 40%, rgba(10,10,12,0.55) 100%)",
+          background:
+            "radial-gradient(circle, rgba(212,165,116,0.10) 0%, transparent 60%)",
+          filter: "blur(60px)",
         }}
       />
 
-      {/* ── Layer 4: main content ── */}
-      <div className="relative z-[4] flex flex-col items-center text-center px-6 w-full max-w-[340px] mx-auto">
+      {/* ─────────────────────────  HERO  ───────────────────────── */}
+      <section className="relative z-[1] px-6 pt-32 sm:pt-48 pb-24 sm:pb-32 max-w-3xl mx-auto">
+        <Stagger delayChildren={0.05} staggerChildren={0.1}>
+          <FadeIn>
+            <div className="flex items-center gap-3">
+              <span className="block w-1 h-1 rounded-full bg-aos-gold/60" />
+              <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary">
+                AOS — Builder&apos;s Framework
+              </p>
+            </div>
+          </FadeIn>
 
-        {/* Eyebrow */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, ease: SPRING }}
-          className="flex items-center gap-2.5 mb-8"
-        >
-          <motion.div
-            animate={{ opacity: [0.6, 1, 0.6], scale: [0.85, 1.1, 0.85] }}
-            transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
-            className="w-1 h-1 rounded-full"
-            style={{ background: "#3DB87A", boxShadow: "0 0 6px #3DB87A" }}
-          />
-          <span className="text-[10px] font-medium tracking-[0.22em] uppercase" style={{ color: "#5A5650" }}>
-            Builder&apos;s Framework
-          </span>
-          <motion.div
-            animate={{ opacity: [0.6, 1, 0.6], scale: [0.85, 1.1, 0.85] }}
-            transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut", delay: 1.3 }}
-            className="w-1 h-1 rounded-full"
-            style={{ background: "#3DB87A", boxShadow: "0 0 6px #3DB87A" }}
-          />
-        </motion.div>
-
-        {/* AOS wordmark with subtle glow */}
-        <motion.div
-          initial={{ opacity: 0, y: 28 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.9, delay: 0.08, ease: SPRING }}
-          className="relative"
-        >
-          {/* Soft glow behind the wordmark */}
-          <div
-            aria-hidden
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background: "radial-gradient(ellipse 60% 80% at center, rgba(212,165,116,0.10) 0%, transparent 65%)",
-              filter: "blur(20px)",
-              transform: "scale(1.4)",
-            }}
-          />
-          <h1
-            className="relative font-serif text-[#F5F2ED] select-none"
-            style={{
-              fontSize: "clamp(80px, 22vw, 112px)",
-              letterSpacing: "-0.05em",
-              lineHeight: 1,
-              textShadow: "0 0 40px rgba(245,242,237,0.05)",
-            }}
-          >
-            AOS
-          </h1>
-        </motion.div>
-
-        {/* Divider with rotating diamond */}
-        <motion.div
-          initial={{ opacity: 0, scaleX: 0 }}
-          animate={{ opacity: 1, scaleX: 1 }}
-          transition={{ duration: 0.7, delay: 0.28 }}
-          className="flex items-center gap-3 my-5 w-[180px]"
-        >
-          <div className="flex-1 h-px" style={{ background: "rgba(212,165,116,0.22)" }} />
-          <motion.div
-            animate={{ rotate: [45, 405] }}
-            transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-            className="w-[6px] h-[6px] shrink-0"
-            style={{
-              background: "linear-gradient(135deg, #E8BD8E 0%, #B8895A 100%)",
-              boxShadow: "0 0 8px rgba(212,165,116,0.4)",
-            }}
-          />
-          <div className="flex-1 h-px" style={{ background: "rgba(212,165,116,0.22)" }} />
-        </motion.div>
-
-        {/* Tagline */}
-        <motion.p
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.18, ease: SPRING }}
-          className="font-serif italic tracking-[-0.02em] leading-tight"
-          style={{ fontSize: "clamp(22px, 6vw, 28px)", color: "#D4A574" }}
-        >
-          Build with conviction.
-        </motion.p>
-
-        {/* Body */}
-        <motion.p
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.32, ease: SPRING }}
-          className="text-[13px] leading-relaxed mt-4"
-          style={{ color: "#8A8580", maxWidth: 260 }}
-        >
-          Curated opportunities. A framework for deciding.
-          A 30-day sprint to ship.
-        </motion.p>
-
-        {/* Pill tags */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.42, ease: SPRING }}
-          className="flex flex-wrap items-center justify-center gap-2 mt-6"
-        >
-          {PILLS.map((label, i) => (
-            <motion.span
-              key={label}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.46 + i * 0.06, ease: SPRING }}
-              className="px-3 py-1 rounded-full text-[10px] font-medium tracking-[0.02em]"
-              style={{
-                background: "rgba(245,242,237,0.04)",
-                border: "1px solid rgba(245,242,237,0.08)",
-                color: "#5A5650",
-              }}
+          <FadeIn>
+            <h1
+              className="font-serif mt-10 text-aos-text leading-[0.95] tracking-[-0.03em] text-balance text-8xl md:text-[9rem] lg:text-[11rem]"
             >
-              {label}
-            </motion.span>
-          ))}
-        </motion.div>
+              Build with{" "}
+              <span className="text-gold-gradient italic">conviction</span>.
+            </h1>
+          </FadeIn>
 
-        {/* CTAs */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.52, ease: SPRING }}
-          className="flex flex-col gap-3 w-full mt-10"
-        >
-          <Link
-            href="/auth/signup"
-            className="group relative flex items-center justify-center gap-2 w-full py-[16px] rounded-[18px] text-[15px] font-semibold tracking-[-0.01em] overflow-hidden transition-transform active:scale-[0.99]"
-            style={{
-              background: "linear-gradient(180deg, #FFFCF5 0%, #F5F2ED 100%)",
-              color: "#0A0A0C",
-              boxShadow:
-                "0 1px 0 rgba(255,255,255,0.6) inset, 0 0 0 1px rgba(212,165,116,0.18), 0 12px 30px rgba(212,165,116,0.10)",
-            }}
-          >
-            {/* Subtle hover gloss */}
-            <span
-              aria-hidden
-              className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-              style={{
-                background:
-                  "radial-gradient(180px 90px at 50% 0%, rgba(212,165,116,0.18), transparent 70%)",
-              }}
-            />
-            <span className="relative">Get started</span>
-            <ArrowRight size={16} strokeWidth={2.5} className="relative" />
-          </Link>
-          <Link
-            href="/auth/login"
-            className="flex items-center justify-center w-full py-[15px] rounded-[18px] text-[15px] font-medium tracking-[-0.01em] transition-all hover:![border-color:rgba(245,242,237,0.18)] hover:!text-aos-text"
-            style={{
-              background: "transparent",
-              color: "#8A8580",
-              border: "1px solid rgba(245,242,237,0.08)",
-            }}
-          >
-            Sign in
-          </Link>
-        </motion.div>
+          <FadeIn>
+            <p
+              className="font-serif italic text-aos-secondary leading-snug mt-8 max-w-xl"
+              style={{ fontSize: "clamp(20px, 3.2vw, 26px)" }}
+            >
+              A decision and leverage engine for the people building products
+              that matter — whether they write code or not.
+            </p>
+          </FadeIn>
 
-        {/* Subtle footer cue */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 1, delay: 1 }}
-          className="absolute -bottom-12 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none"
-        >
-          <div className="w-1 h-1 rounded-full" style={{ background: "rgba(212,165,116,0.4)" }} />
-          <span className="text-[9px] uppercase tracking-[0.24em]" style={{ color: "#3A3A42" }}>
-            Refreshes Mondays
-          </span>
-          <div className="w-1 h-1 rounded-full" style={{ background: "rgba(212,165,116,0.4)" }} />
-        </motion.div>
+          <FadeIn>
+            <p className="text-[15px] leading-relaxed text-aos-secondary mt-6 max-w-md">
+              Curated opportunities. A framework for deciding. A thirty-day
+              sprint to ship.
+            </p>
+          </FadeIn>
 
+          <FadeIn>
+            <div className="flex flex-wrap items-center gap-5 mt-12">
+              <Button variant="primary" size="lg" href="/auth/signup">
+                Begin your sprint
+                <ArrowRight size={16} strokeWidth={2.5} />
+              </Button>
+              <Link
+                href="/auth/login"
+                className="text-[14px] text-aos-secondary hover:text-aos-text transition-colors"
+              >
+                Already a builder? Sign in
+              </Link>
+            </div>
+          </FadeIn>
+        </Stagger>
+      </section>
+
+      {/* hairline rule — editorial spine */}
+      <div className="relative z-[1] max-w-3xl mx-auto px-6">
+        <div className="h-px bg-gradient-to-r from-transparent via-aos-border-strong to-transparent" />
       </div>
+
+      {/* ───────────────────────  MOVEMENTS  ─────────────────────── */}
+      <section className="relative z-[1] px-6 pt-24 sm:pt-32 pb-20 max-w-5xl mx-auto">
+        <FadeIn>
+          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-4">
+            Three movements
+          </p>
+          <h2
+            className="font-serif text-aos-text leading-[1.05] tracking-[-0.02em] max-w-2xl text-balance"
+            style={{ fontSize: "clamp(34px, 5.5vw, 56px)" }}
+          >
+            From a question worth answering to a product worth shipping.
+          </h2>
+        </FadeIn>
+
+        <Stagger
+          className="grid sm:grid-cols-3 gap-5 mt-16"
+          delayChildren={0.05}
+          staggerChildren={0.1}
+        >
+          {MOVEMENTS.map((m, i) => (
+            <FadeIn key={m.title}>
+              <div className="card-interactive h-full bg-ink-700 [background-image:none] border-ink-500">
+                <div className="font-mono text-[10px] tracking-[0.24em] uppercase text-aos-tertiary mb-5">
+                  {String(i + 1).padStart(2, "0")}
+                </div>
+                <h3 className="font-serif text-[26px] leading-[1.15] text-aos-text">
+                  {m.title}
+                </h3>
+                <p className="text-[14px] leading-relaxed text-aos-secondary mt-4">
+                  {m.body}
+                </p>
+              </div>
+            </FadeIn>
+          ))}
+        </Stagger>
+      </section>
+
+      {/* ─────────────────  OPPORTUNITY PREVIEW  ───────────────── */}
+      <section className="relative z-[1] px-6 pt-20 pb-24 max-w-5xl mx-auto">
+        <FadeIn>
+          <div className="flex items-end justify-between flex-wrap gap-6 mb-14">
+            <div className="max-w-2xl">
+              <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-4">
+                This week&apos;s catalog
+              </p>
+              <h2
+                className="font-serif text-aos-text leading-[1.05] tracking-[-0.02em] text-balance"
+                style={{ fontSize: "clamp(34px, 5.5vw, 56px)" }}
+              >
+                Five opportunities, hand-selected.
+              </h2>
+              <p className="font-serif italic text-aos-secondary mt-6 leading-snug max-w-md text-[18px]">
+                A taste of what arrives every Monday. No idea generators, no
+                dumping ground.
+              </p>
+            </div>
+          </div>
+        </FadeIn>
+
+        <Stagger
+          className="grid md:grid-cols-2 gap-5"
+          delayChildren={0.05}
+          staggerChildren={0.08}
+        >
+          {SAMPLE_OPPORTUNITIES.map((opp) => (
+            <FadeIn key={opp.title}>
+              <article className="card-interactive group">
+                <div className="flex items-center gap-3 mb-6">
+                  <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
+                    {opp.category}
+                  </span>
+                  <span className="text-aos-tertiary">·</span>
+                  <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-aos-tertiary">
+                    Confidence {opp.confidence}/5
+                  </span>
+                </div>
+                <h3 className="font-serif text-[28px] leading-[1.1] text-aos-text mb-4 text-balance">
+                  {opp.title}
+                </h3>
+                <p className="text-[14px] leading-relaxed text-aos-secondary">
+                  {opp.gap}
+                </p>
+                <div className="flex items-center justify-between mt-7 pt-5 border-t border-aos-border">
+                  <span className="text-[12px] text-aos-tertiary">
+                    {opp.signal}
+                  </span>
+                  <span className="text-[13px] text-aos-text inline-flex items-center gap-1.5 transition-transform group-hover:translate-x-0.5">
+                    Read the gap
+                    <ArrowRight size={13} strokeWidth={2} />
+                  </span>
+                </div>
+              </article>
+            </FadeIn>
+          ))}
+        </Stagger>
+      </section>
+
+      {/* ────────────────────  CLOSING THESIS  ──────────────────── */}
+      <section className="relative z-[1] px-6 pt-24 pb-32 max-w-3xl mx-auto text-center">
+        <FadeIn>
+          <p
+            className="font-serif italic text-aos-text leading-[1.15] tracking-[-0.01em] text-balance"
+            style={{ fontSize: "clamp(28px, 4.8vw, 44px)" }}
+          >
+            Creation is cheap. Judgment, taste, and trust are everything.
+          </p>
+          <div className="mt-12 flex justify-center">
+            <Button variant="primary" size="lg" href="/auth/signup">
+              Begin your sprint
+              <ArrowRight size={16} strokeWidth={2.5} />
+            </Button>
+          </div>
+          <div className="flex items-center justify-center gap-3 mt-10">
+            <span className="block w-1 h-1 rounded-full bg-aos-gold/40" />
+            <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary">
+              Refreshes Mondays
+            </p>
+            <span className="block w-1 h-1 rounded-full bg-aos-gold/40" />
+          </div>
+        </FadeIn>
+      </section>
     </main>
   );
 }

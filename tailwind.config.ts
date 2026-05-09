@@ -25,6 +25,10 @@ const config: Config = {
           gold:           "#D4A574",
           "gold-soft":    "var(--aos-gold-soft)",
         },
+        ink: {
+          500: "#34343F",
+          700: "#1F1F26",
+        },
       },
       fontFamily: {
         sans:  ["var(--font-jakarta)", "system-ui", "sans-serif"],

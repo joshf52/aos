@@ -1,223 +1,165 @@
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { FeedContent } from "./feed-content";
+import { FadeIn, Stagger } from "@/components/motion";
 import type { Opportunity } from "@/types/database";
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYS = [
+  "Sunday", "Monday", "Tuesday", "Wednesday",
+  "Thursday", "Friday", "Saturday",
+];
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 
-const DOMAIN_LABELS: Record<string, string> = {
-  ai: "AI & ML", creator: "Creator Economy", b2b: "B2B SaaS",
-  devtools: "Dev Tools", health: "Health", finance: "Finance",
-  education: "Education", productivity: "Productivity",
-  commerce: "E-commerce", community: "Community", media: "Media", climate: "Climate",
-};
-
-function formatDate(): string {
+function formatToday(): string {
   const d = new Date();
-  return `${DAYS[d.getDay()]} · ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  return `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
-type OpportunityWithDomains = Opportunity & { domains?: string[] | null };
-
-/**
- * Score = base confidence + 2 * (number of overlapping domains).
- * A strong domain match (3+ overlaps) outweighs a one-point confidence
- * difference, but base quality still anchors ranking.
- */
-function scoreOpportunity(
-  opp: OpportunityWithDomains,
-  userDomains: Set<string>
-): number {
-  const overlap = (opp.domains ?? []).reduce(
-    (acc, d) => (userDomains.has(d) ? acc + 1 : acc),
-    0
-  );
-  return opp.confidence + overlap * 2;
+function firstSentence(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^(.+?[.!?])(\s|$)/);
+  return match ? match[1] : trimmed;
 }
-
-function calcDaysIn(startedAt: string): number {
-  const diff = Math.floor(
-    (Date.now() - new Date(startedAt).getTime()) / (1000 * 60 * 60 * 24)
-  );
-  return Math.min(Math.max(diff + 1, 1), 30);
-}
-
-type ActiveCommitmentRow = {
-  id: string;
-  opportunity_id: string;
-  started_at: string;
-};
-
-type ShippedRow = {
-  completed_at: string | null;
-  shipped_url: string;
-  opportunity: { title: string; capability: string } | null;
-};
-
-export type ShippedCard = {
-  title: string;
-  capability: string;
-  url: string;
-  shippedAt: string;
-};
-
-export type TrendingSignal = {
-  domain: string;
-  label: string;
-  count: number;
-};
 
 export default async function FeedPage() {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
-  const [oppsResult, profileResult, commitmentResult, shippedResult] = await Promise.all([
-    supabase
-      .from("opportunities")
-      .select("*")
-      .eq("is_active", true) as unknown as Promise<{
-      data: OpportunityWithDomains[] | null;
-    }>,
-    user
-      ? (supabase
-          .from("profiles")
-          .select("domains, build_mode")
-          .eq("id", user.id)
-          .single() as unknown as Promise<{
-          data: { domains: string[] | null; build_mode: string | null } | null;
-        }>)
-      : Promise.resolve({ data: null }),
-    user
-      ? (supabase
-          .from("commitments")
-          .select("id, opportunity_id, started_at")
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .order("started_at", { ascending: false })
-          .limit(1) as unknown as Promise<{
-          data: ActiveCommitmentRow[] | null;
-        }>)
-      : Promise.resolve({ data: null }),
-    supabase
-      .from("commitments")
-      .select("completed_at, shipped_url, opportunity:opportunities(title, capability)")
-      .not("shipped_url", "is", null)
-      .order("completed_at", { ascending: false })
-      .limit(3) as unknown as Promise<{ data: ShippedRow[] | null }>,
-  ]);
+  const { data } = (await supabase
+    .from("opportunities")
+    .select("*")
+    .eq("is_active", true)
+    .order("confidence", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(5)) as unknown as { data: Opportunity[] | null };
 
-  const profile = (profileResult as {
-    data: { domains: string[] | null; build_mode: string | null } | null;
-  }).data;
-  const userDomains = new Set<string>(profile?.domains ?? []);
-  const allOpps = oppsResult.data ?? [];
-
-  const activeCommitment = (commitmentResult as { data: ActiveCommitmentRow[] | null }).data?.[0] ?? null;
-
-  let sprint: {
-    commitmentId: string;
-    opportunityTitle: string;
-    daysIn: number;
-    checkinDue: boolean;
-    buildMode: "self" | "ai";
-  } | null = null;
-
-  if (activeCommitment) {
-    const opp = allOpps.find((o) => o.id === activeCommitment.opportunity_id);
-    const daysIn = calcDaysIn(activeCommitment.started_at);
-    const currentWeek = Math.min(Math.ceil(daysIn / 7), 4);
-
-    const { data: checkins } = (await supabase
-      .from("checkins")
-      .select("id")
-      .eq("commitment_id", activeCommitment.id)) as unknown as {
-      data: { id: string }[] | null;
-    };
-    const checkinCount = checkins?.length ?? 0;
-
-    sprint = {
-      commitmentId: activeCommitment.id,
-      opportunityTitle: opp?.title ?? "Your sprint",
-      daysIn,
-      checkinDue: checkinCount < currentWeek,
-      buildMode: profile?.build_mode === "ai" ? "ai" : "self",
-    };
-  }
-
-  // Rank: score desc, then confidence desc, then most recent
-  const ranked = [...allOpps].sort((a, b) => {
-    const sa = scoreOpportunity(a, userDomains);
-    const sb = scoreOpportunity(b, userDomains);
-    if (sb !== sa) return sb - sa;
-    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
-
-  const opportunities = ranked.slice(0, 5);
-
-  // Subtitle copy adapts to whether the user has selected domains and whether
-  // we found any matches in the top result.
-  const domainsArr = Array.from(userDomains);
-  const featured = opportunities[0];
-  const featuredOverlap = featured?.domains?.filter((d) =>
-    userDomains.has(d)
-  ) ?? [];
-
-  let subtitle: string;
-  if (domainsArr.length === 0) {
-    subtitle = "One opportunity worth your attention.";
-  } else if (featuredOverlap.length > 0) {
-    const label = DOMAIN_LABELS[featuredOverlap[0]] ?? featuredOverlap[0];
-    subtitle = `Matched to your interest in ${label.toLowerCase()}.`;
-  } else {
-    const first = DOMAIN_LABELS[domainsArr[0]] ?? domainsArr[0];
-    const extra = domainsArr.length - 1;
-    subtitle = `Tuned to ${first.toLowerCase()}${
-      extra > 0 ? ` and ${extra} other domain${extra > 1 ? "s" : ""}` : ""
-    } you picked.`;
-  }
-
-  // Trending signals — count domain occurrences across all active opps,
-  // top 4 wins. Gives the feed a "what's hot this week" pulse without
-  // needing real time-series data.
-  const domainCounts = new Map<string, number>();
-  for (const opp of allOpps) {
-    for (const d of opp.domains ?? []) {
-      domainCounts.set(d, (domainCounts.get(d) ?? 0) + 1);
-    }
-  }
-  const trending: TrendingSignal[] = Array.from(domainCounts.entries())
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([domain, count]) => ({
-      domain,
-      label: DOMAIN_LABELS[domain] ?? domain,
-      count,
-    }));
-
-  // Just shipped — anonymized recent ships. Social proof that this thing works.
-  const shipped: ShippedCard[] = (shippedResult.data ?? [])
-    .filter((s) => s.opportunity && s.shipped_url && s.completed_at)
-    .map((s) => ({
-      title: s.opportunity!.title,
-      capability: s.opportunity!.capability,
-      url: s.shipped_url,
-      shippedAt: s.completed_at!,
-    }));
+  const opportunities = data ?? [];
+  const [hero, ...rest] = opportunities;
 
   return (
-    <FeedContent
-      opportunities={opportunities}
-      dateLabel={formatDate()}
-      subtitle={subtitle}
-      userDomains={domainsArr}
-      sprint={sprint}
-      trending={trending}
-      shipped={shipped}
-    />
+    <main className="relative min-h-dvh bg-aos-bg">
+      <div className="relative z-[1] px-6 pt-20 pb-32 max-w-5xl mx-auto">
+        {/* Editorial date header */}
+        <FadeIn>
+          <p className="text-xs font-mono tracking-widest uppercase text-aos-tertiary mb-4">
+            Today
+          </p>
+          <h1
+            className="font-serif text-aos-text leading-[1.02] tracking-[-0.025em] text-balance"
+            style={{ fontSize: "clamp(40px, 7vw, 72px)" }}
+          >
+            {formatToday()}
+          </h1>
+          <p className="font-serif italic text-aos-secondary mt-5 leading-snug max-w-md text-[18px]">
+            Five opportunities, hand-selected. The one most worth your week sits
+            at the top.
+          </p>
+        </FadeIn>
+
+        {/* Hero opportunity */}
+        {hero && (
+          <FadeIn delay={0.1}>
+            <Link
+              href={`/opportunity/${hero.slug}`}
+              className="group relative mt-14 block rounded-[1.5rem] overflow-hidden p-12 sm:p-14
+                         bg-ink-700 border border-ink-500
+                         shadow-[0_20px_60px_rgba(0,0,0,0.4)]
+                         transition-[transform,border-color,box-shadow] duration-500 ease-spring
+                         hover:-translate-y-0.5 hover:border-aos-gold/30
+                         hover:shadow-[0_28px_80px_rgba(0,0,0,0.55),0_0_0_1px_rgba(212,165,116,0.08)]
+                         focus-visible:outline-none focus-visible:border-aos-gold/40"
+            >
+              <div className="flex items-center gap-3 mb-8 flex-wrap">
+                <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
+                  {hero.capability}
+                </span>
+                <span className="text-aos-tertiary">·</span>
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                             font-mono text-[10px] tracking-[0.14em] uppercase text-aos-gold
+                             bg-aos-gold/[0.08] border border-aos-gold/20"
+                >
+                  Confidence {hero.confidence}/5
+                </span>
+              </div>
+
+              <h2 className="font-serif text-6xl text-aos-text leading-[1.05] tracking-[-0.025em] text-balance max-w-3xl">
+                {hero.title}
+              </h2>
+
+              <p className="text-[15px] leading-relaxed text-aos-secondary mt-7 max-w-2xl">
+                {hero.gap}
+              </p>
+
+              <div className="flex items-center justify-between mt-10 pt-6 border-t border-aos-border">
+                <span className="text-[12px] text-aos-tertiary">
+                  {hero.signal}
+                </span>
+                <span className="text-[14px] text-aos-text inline-flex items-center gap-1.5 transition-transform duration-300 group-hover:translate-x-0.5">
+                  Read the gap
+                  <ArrowRight size={14} strokeWidth={2} />
+                </span>
+              </div>
+            </Link>
+          </FadeIn>
+        )}
+
+        {/* Remaining four */}
+        {rest.length > 0 && (
+          <div className="mt-20">
+            <FadeIn>
+              <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-6">
+                Also this week
+              </p>
+            </FadeIn>
+
+            <Stagger
+              className="grid md:grid-cols-2 gap-5"
+              delayChildren={0.05}
+              staggerChildren={0.08}
+            >
+              {rest.map((opp) => (
+                <FadeIn key={opp.id}>
+                  <Link
+                    href={`/opportunity/${opp.slug}`}
+                    className="card-interactive group flex flex-col h-full"
+                  >
+                    <div className="flex items-center gap-3 mb-6">
+                      <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
+                        {opp.capability}
+                      </span>
+                      <span className="text-aos-tertiary">·</span>
+                      <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-aos-tertiary">
+                        Confidence {opp.confidence}/5
+                      </span>
+                    </div>
+
+                    <h3 className="font-serif text-[26px] leading-[1.12] text-aos-text tracking-[-0.02em] text-balance mb-4">
+                      {opp.title}
+                    </h3>
+
+                    <p className="text-[14px] leading-relaxed text-aos-secondary">
+                      {firstSentence(opp.gap)}
+                    </p>
+
+                    <div className="mt-auto flex items-center justify-between gap-4 pt-5 border-t border-aos-border">
+                      <span className="text-[12px] text-aos-tertiary truncate">
+                        {opp.signal}
+                      </span>
+                      <span className="shrink-0 text-[13px] text-aos-text inline-flex items-center gap-1.5 transition-transform duration-300 group-hover:translate-x-0.5">
+                        Read the gap
+                        <ArrowRight size={13} strokeWidth={2} />
+                      </span>
+                    </div>
+                  </Link>
+                </FadeIn>
+              ))}
+            </Stagger>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }

@@ -1,46 +1,36 @@
-import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { DashboardContent } from "./dashboard-content";
-import { recomputeReputation } from "@/lib/reputation";
-import { dailyQuote } from "@/lib/quotes";
-import Link from "next/link";
+import { ArrowRight, Check } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
+import { Button } from "@/components/ui/button";
+import { FadeIn } from "@/components/motion";
 
-async function abandonCommitment(formData: FormData) {
-  "use server";
-  const commitmentId = formData.get("commitmentId") as string;
-  if (!commitmentId) return;
+const DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTHS_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
+function calcDaysIn(startedAt: string): number {
+  const start = new Date(startedAt);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.min(Math.max(diff + 1, 1), 30);
+}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("commitments") as any)
-    .update({ status: "abandoned", abandoned_at: new Date().toISOString() })
-    .eq("id", commitmentId)
-    .eq("user_id", user.id);
+function calcWeek(startedAt: string): number {
+  return Math.min(Math.ceil(calcDaysIn(startedAt) / 7), 4);
+}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("events") as any).insert({
-    user_id: user.id,
-    event_name: "commitment_abandoned",
-    payload: { commitment_id: commitmentId },
-  });
-
-  await recomputeReputation(supabase, user.id);
-
-  revalidatePath("/dashboard");
-  revalidatePath("/profile");
-  redirect("/feed");
+function formatLogDate(iso: string): string {
+  const d = new Date(iso);
+  return `${DAYS_LONG[d.getDay()].slice(0, 3).toUpperCase()} · ${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`;
 }
 
 type CommitmentRow = {
   id: string;
   opportunity_id: string;
-  lens_id: string;
   started_at: string;
 };
 
@@ -48,30 +38,53 @@ type CheckinRow = {
   id: string;
   week_number: number;
   created_at: string;
-  next_focus: string;
   shipped_learned: string;
 };
 
-type LensRow = {
-  answer_4: string | null;
-  answer_5: string | null;
-  completed_at: string | null;
-};
+async function saveTodayCheckin(formData: FormData): Promise<void> {
+  "use server";
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
 
-function calcDaysIn(startedAt: string): number {
-  const start = new Date(startedAt);
-  const now = new Date();
-  const diff = Math.floor(
-    (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  return Math.min(Math.max(diff + 1, 1), 30);
-}
+  const commitmentId = (formData.get("commitmentId") as string) || "";
+  const shipped = ((formData.get("shipped") as string) || "").trim();
+  if (!commitmentId || !shipped) return;
 
-function formatStartDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
+  // Verify commitment is the user's and active; derive current week
+  const { data: commitment } = (await supabase
+    .from("commitments")
+    .select("id, started_at, status")
+    .eq("id", commitmentId)
+    .eq("user_id", user.id)
+    .single()) as unknown as {
+    data: { id: string; started_at: string; status: string } | null;
+  };
+  if (!commitment || commitment.status !== "active") return;
+
+  const week = calcWeek(commitment.started_at);
+
+  // Schema constraint: unique(commitment_id, week_number). If a row already
+  // exists for this week, do nothing — UI shows the confirmation state.
+  const { data: existing } = await supabase
+    .from("checkins")
+    .select("id")
+    .eq("commitment_id", commitment.id)
+    .eq("week_number", week)
+    .maybeSingle();
+  if (existing) return;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase.from("checkins") as any).insert({
+    commitment_id: commitment.id,
+    week_number: week,
+    shipped_learned: shipped,
+    next_focus: "—",
   });
+
+  revalidatePath("/dashboard");
 }
 
 export default async function DashboardPage() {
@@ -81,49 +94,41 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  // Most recent active commitment + build_mode
-  const [{ data: commitments }, { data: profile }] = await Promise.all([
-    (supabase
-      .from("commitments")
-      .select("id, opportunity_id, lens_id, started_at")
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .order("started_at", { ascending: false })
-      .limit(1)) as unknown as Promise<{ data: CommitmentRow[] | null }>,
-    (supabase
-      .from("profiles")
-      .select("build_mode")
-      .eq("id", user.id)
-      .single()) as unknown as Promise<{ data: { build_mode: string | null } | null }>,
-  ]);
-
-  const buildMode: "self" | "ai" = profile?.build_mode === "ai" ? "ai" : "self";
+  const { data: commitments } = (await supabase
+    .from("commitments")
+    .select("id, opportunity_id, started_at")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("started_at", { ascending: false })
+    .limit(1)) as unknown as { data: CommitmentRow[] | null };
 
   const commitment = commitments?.[0] ?? null;
 
   if (!commitment) {
     return (
-      <main className="min-h-dvh bg-aos-bg flex flex-col items-center justify-center px-6 text-center">
-        <p className="font-serif text-[32px] text-aos-text tracking-[-0.02em] leading-tight mb-3">
-          No active sprint.
-        </p>
-        <p className="font-serif italic text-aos-secondary text-sm mb-8 leading-relaxed">
-          Find an opportunity and commit to it
-          <br />
-          to start your 30-day sprint.
-        </p>
-        <Link
-          href="/feed"
-          className="px-6 py-3 rounded-full text-sm font-semibold tracking-[-0.01em] transition-opacity hover:opacity-80"
-          style={{ background: "#F5F2ED", color: "#0A0A0C" }}
-        >
-          Browse opportunities
-        </Link>
+      <main className="relative min-h-dvh bg-aos-bg flex flex-col items-center justify-center px-6 text-center">
+        <FadeIn>
+          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-5">
+            Sprint
+          </p>
+          <h1 className="font-serif text-5xl text-aos-text leading-[1.05] tracking-[-0.025em] text-balance">
+            No active sprint.
+          </h1>
+          <p className="font-serif italic text-aos-secondary mt-5 leading-relaxed max-w-md mx-auto">
+            Find an opportunity and commit to it to start your thirty-day sprint.
+          </p>
+          <div className="mt-10 flex justify-center">
+            <Button variant="primary" size="lg" href="/feed">
+              Browse opportunities
+              <ArrowRight size={16} strokeWidth={2.5} />
+            </Button>
+          </div>
+        </FadeIn>
       </main>
     );
   }
 
-  const [oppResult, checkinsResult, lensResult] = await Promise.all([
+  const [oppResult, checkinsResult] = await Promise.all([
     supabase
       .from("opportunities")
       .select("title")
@@ -131,68 +136,177 @@ export default async function DashboardPage() {
       .single() as unknown as Promise<{ data: { title: string } | null }>,
     supabase
       .from("checkins")
-      .select("id, week_number, created_at, next_focus, shipped_learned")
+      .select("id, week_number, created_at, shipped_learned")
       .eq("commitment_id", commitment.id)
-      .order("week_number", { ascending: true }) as unknown as Promise<{
+      .order("created_at", { ascending: false }) as unknown as Promise<{
       data: CheckinRow[] | null;
     }>,
-    supabase
-      .from("decision_lenses")
-      .select("answer_4, answer_5, completed_at")
-      .eq("id", commitment.lens_id)
-      .single() as unknown as Promise<{ data: LensRow | null }>,
   ]);
 
-  const daysIn = calcDaysIn(commitment.started_at);
-  const currentWeek = Math.min(Math.ceil(daysIn / 7), 4);
+  const opportunityTitle = oppResult.data?.title ?? "";
   const checkins = checkinsResult.data ?? [];
-  const checkinCount = checkins.length;
-  const checkinDue = checkinCount < currentWeek;
-
-  // Today's focus: most recent check-in's next_focus, else lens "smallest test"
-  // (answer_4), else a default prompt. The lens completes before commitment is
-  // created, so answer_4 is always populated for an active commitment.
-  const lastCheckin = checkins[checkins.length - 1] ?? null;
-  const focus = lastCheckin?.next_focus
-    ? { source: "checkin" as const, week: lastCheckin.week_number, text: lastCheckin.next_focus }
-    : lensResult.data?.answer_4
-    ? { source: "lens" as const, week: 0, text: lensResult.data.answer_4 }
-    : null;
-
-  // Builder log: lens completion → sprint start → each check-in. Newest last.
-  const log: { kind: "lens" | "start" | "checkin"; date: string; label: string; detail?: string }[] = [];
-  if (lensResult.data?.completed_at) {
-    log.push({ kind: "lens", date: lensResult.data.completed_at, label: "Decision Lens completed" });
-  }
-  log.push({
-    kind: "start",
-    date: commitment.started_at,
-    label: "Sprint began",
-    detail: "Covenant signed",
-  });
-  for (const c of checkins) {
-    log.push({
-      kind: "checkin",
-      date: c.created_at,
-      label: `Week ${c.week_number} check-in`,
-      detail: c.shipped_learned.slice(0, 80) + (c.shipped_learned.length > 80 ? "…" : ""),
-    });
-  }
+  const daysIn = calcDaysIn(commitment.started_at);
+  const week = calcWeek(commitment.started_at);
+  const progressPct = Math.min(Math.round((daysIn / 30) * 100), 100);
+  const checkedInThisWeek = checkins.some((c) => c.week_number === week);
 
   return (
-    <DashboardContent
-      commitmentId={commitment.id}
-      opportunityTitle={oppResult.data?.title ?? ""}
-      daysIn={daysIn}
-      currentWeek={currentWeek}
-      checkinCount={checkinCount}
-      checkinDue={checkinDue}
-      startDate={formatStartDate(commitment.started_at)}
-      buildMode={buildMode}
-      focus={focus}
-      log={log}
-      quote={dailyQuote()}
-      abandonCommitment={abandonCommitment}
-    />
+    <main className="relative min-h-dvh bg-aos-bg">
+      <div className="relative z-[1] px-6 pt-20 pb-32 max-w-3xl mx-auto">
+        {/* HEADER */}
+        <FadeIn>
+          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-5">
+            Sprint
+          </p>
+          <h1 className="font-serif text-aos-text text-5xl md:text-6xl leading-[1.02] tracking-[-0.025em] text-balance">
+            {opportunityTitle}
+          </h1>
+          <div className="mt-6 flex items-center gap-3">
+            <span className="font-mono text-[12px] tracking-[0.18em] uppercase text-aos-gold tabular-nums">
+              Day {daysIn} of 30
+            </span>
+            <span className="text-aos-tertiary">·</span>
+            <span className="font-mono text-[11px] tracking-[0.14em] uppercase text-aos-tertiary tabular-nums">
+              Week {week} of 4
+            </span>
+          </div>
+        </FadeIn>
+
+        {/* PROGRESS BAR */}
+        <FadeIn delay={0.05}>
+          <div className="mt-10">
+            <div
+              className="relative h-1.5 w-full rounded-full overflow-hidden bg-ink-700 border border-aos-border"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={30}
+              aria-valuenow={daysIn}
+              aria-label={`Day ${daysIn} of 30`}
+            >
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-aos-gold to-[#B8895A]
+                           shadow-[0_0_18px_rgba(212,165,116,0.35)]"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between font-mono text-[10px] tracking-[0.18em] uppercase text-aos-tertiary tabular-nums">
+              <span>{progressPct}%</span>
+              <span>{30 - daysIn} days remaining</span>
+            </div>
+          </div>
+        </FadeIn>
+
+        {/* CHECK-IN CARD */}
+        <FadeIn delay={0.1}>
+          <section className="mt-14">
+            <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-5">
+              Today
+            </p>
+
+            {checkedInThisWeek ? (
+              <div
+                className="rounded-[1.25rem] p-8 bg-ink-700 border border-ink-500
+                           flex items-start gap-5"
+              >
+                <div
+                  className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center
+                             bg-aos-gold/[0.10] border border-aos-gold/30"
+                >
+                  <Check size={16} strokeWidth={2.5} className="text-aos-gold" />
+                </div>
+                <div>
+                  <h2 className="font-serif text-[26px] leading-[1.15] text-aos-text tracking-[-0.02em]">
+                    You shipped today.
+                  </h2>
+                  <p className="text-[14px] leading-relaxed text-aos-secondary mt-2">
+                    Logged for week {week}. Come back tomorrow.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <form
+                action={saveTodayCheckin}
+                className="rounded-[1.25rem] p-8 bg-ink-700 border border-ink-500"
+              >
+                <input type="hidden" name="commitmentId" value={commitment.id} />
+                <h2 className="font-serif text-[28px] leading-[1.15] text-aos-text tracking-[-0.02em]">
+                  What did you ship today?
+                </h2>
+                <p className="text-[14px] leading-relaxed text-aos-secondary mt-2">
+                  A line, a paragraph, a screenshot description. Whatever moved.
+                </p>
+
+                <textarea
+                  name="shipped"
+                  required
+                  minLength={1}
+                  placeholder="Today I…"
+                  className="w-full min-h-[120px] resize-none mt-6 bg-ink-700
+                             border border-aos-border rounded-lg p-4 text-base font-sans
+                             text-aos-text leading-relaxed outline-none
+                             placeholder:text-aos-tertiary placeholder:italic
+                             transition-colors duration-200 focus:border-aos-border-strong"
+                  style={{ caretColor: "#D4A574" }}
+                />
+
+                <div className="mt-5 flex justify-end">
+                  <Button variant="primary" size="lg" type="submit">
+                    Submit check-in
+                    <ArrowRight size={16} strokeWidth={2.5} />
+                  </Button>
+                </div>
+              </form>
+            )}
+          </section>
+        </FadeIn>
+
+        {/* PAST CHECK-INS LOG */}
+        {checkins.length > 0 && (
+          <FadeIn delay={0.15}>
+            <section className="mt-16">
+              <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-6">
+                The log
+              </p>
+
+              <ul className="border-y border-aos-border">
+                {checkins.map((c, i) => (
+                  <li
+                    key={c.id}
+                    className={
+                      "py-6" +
+                      (i < checkins.length - 1 ? " border-b border-aos-border" : "")
+                    }
+                  >
+                    <div className="flex items-baseline gap-4 mb-3">
+                      <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-tertiary tabular-nums shrink-0">
+                        {formatLogDate(c.created_at)}
+                      </span>
+                      <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-aos-gold/70 tabular-nums">
+                        Week {c.week_number}
+                      </span>
+                    </div>
+                    <p className="font-serif text-[18px] leading-[1.4] text-aos-text tracking-[-0.005em] whitespace-pre-line text-balance">
+                      {c.shipped_learned}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </FadeIn>
+        )}
+
+        {/* Quiet "back to feed" link */}
+        <FadeIn delay={0.2}>
+          <div className="mt-16 text-center">
+            <Link
+              href="/feed"
+              className="font-mono text-[11px] tracking-[0.18em] uppercase text-aos-tertiary hover:text-aos-secondary transition-colors"
+            >
+              ← Back to today
+            </Link>
+          </div>
+        </FadeIn>
+      </div>
+    </main>
   );
 }

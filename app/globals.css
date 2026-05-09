@@ -53,6 +53,65 @@
   .group:focus-visible [data-confidence-dot="empty"] {
     background-color: rgba(212, 165, 116, 0.32) !important;
   }
+
+  /* Koan typography — full-screen serif moments. Pairs with .font-serif.
+     Used by the Lens wizard for the monumental question on each step. */
+  .text-koan {
+    font-size: clamp(36px, 7.5vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  /* Aged-gold gradient text. Use sparingly — one accented word per heading. */
+  .text-gold-gradient {
+    background-image: linear-gradient(135deg, #E8BD8E 0%, #D4A574 50%, #B8895A 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+}
+
+@layer components {
+  /* Editorial card with hover lift and a hint of gold on the border.
+     For tappable preview tiles — opportunity cards, feature panels. */
+  .card-interactive {
+    position: relative;
+    display: block;
+    padding: 1.75rem;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(160deg, #1A1A22 0%, #15151A 55%, #12121A 100%);
+    border: 1px solid var(--aos-border);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.3);
+    transition:
+      transform 600ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 400ms ease,
+      box-shadow 400ms ease;
+  }
+  .card-interactive:hover,
+  .card-interactive:focus-visible {
+    transform: translateY(-2px);
+    border-color: rgba(212, 165, 116, 0.22);
+    box-shadow:
+      0 20px 44px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(212, 165, 116, 0.06);
+  }
+  .card-interactive::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 1.5rem;
+    right: 1.5rem;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(245, 242, 237, 0.12) 50%,
+      transparent 100%
+    );
+  }
 }
 
 @layer base {

@@ -7,6 +7,7 @@ export type ReputationStage = "Explorer" | "Builder" | "Shipper" | "Proven";
 export type CommitmentStatus = "active" | "completed" | "abandoned";
 export type Tier = "free" | "pro";
 export type EmailKind = "welcome" | "checkin_nudge";
+export type AiBuildStatus = "pending" | "approved" | "building" | "live" | "failed";
 export type EmailStatus =
   | "sent"
   | "failed"
@@ -265,6 +266,50 @@ export interface Database {
           user_id?: string | null;
           event?: string;
           properties?: Json | null;
+        };
+      };
+      ai_builds: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          commitment_id: string;
+          user_id: string;
+          status: AiBuildStatus;
+          build_config: Json | null;
+          project_name: string | null;
+          deployment_id: string | null;
+          deployment_url: string | null;
+          error: string | null;
+          edit_count: number;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          commitment_id: string;
+          user_id: string;
+          status?: AiBuildStatus;
+          build_config?: Json | null;
+          project_name?: string | null;
+          deployment_id?: string | null;
+          deployment_url?: string | null;
+          error?: string | null;
+          edit_count?: number;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          commitment_id?: string;
+          user_id?: string;
+          status?: AiBuildStatus;
+          build_config?: Json | null;
+          project_name?: string | null;
+          deployment_id?: string | null;
+          deployment_url?: string | null;
+          error?: string | null;
+          edit_count?: number;
         };
       };
       email_events: {

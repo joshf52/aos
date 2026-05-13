@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { AIBuildContent } from "./ai-build-content";
+import type { AiBuildStatus } from "@/types/database";
 
 type CommitmentRow = {
   id: string;
@@ -14,6 +15,14 @@ type LensRow = {
   answer_3: string | null;
   answer_4: string | null;
   answer_5: string | null;
+};
+
+type AiBuildRow = {
+  id: string;
+  status: AiBuildStatus;
+  deployment_url: string | null;
+  error: string | null;
+  created_at: string;
 };
 
 export default async function AIBuildPage({
@@ -34,7 +43,7 @@ export default async function AIBuildPage({
 
   if (!commitment) redirect("/feed");
 
-  const [{ data: lens }, { data: opp }] = await Promise.all([
+  const [{ data: lens }, { data: opp }, { data: build }] = await Promise.all([
     (supabase
       .from("decision_lenses")
       .select("answer_1, answer_2, answer_3, answer_4, answer_5")
@@ -45,6 +54,14 @@ export default async function AIBuildPage({
       .select("title")
       .eq("id", commitment.opportunity_id)
       .single()) as unknown as Promise<{ data: { title: string } | null }>,
+    (supabase
+      .from("ai_builds")
+      .select("id, status, deployment_url, error, created_at")
+      .eq("commitment_id", commitment.id)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()) as unknown as Promise<{ data: AiBuildRow | null }>,
   ]);
 
   const answers: string[] = [
@@ -57,8 +74,18 @@ export default async function AIBuildPage({
 
   return (
     <AIBuildContent
+      commitmentId={commitment.id}
       opportunityTitle={opp?.title ?? ""}
       answers={answers}
+      build={
+        build
+          ? {
+              status: build.status,
+              deploymentUrl: build.deployment_url,
+              error: build.error,
+            }
+          : null
+      }
     />
   );
 }

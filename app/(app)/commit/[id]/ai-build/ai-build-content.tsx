@@ -1,12 +1,14 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowRight, CheckCircle2, Clock, MessageSquare, Rocket } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock, ExternalLink, MessageSquare, Rocket } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AOSAnimatedBackground } from "@/components/aos/animated-background";
 import { AOSDepthCard } from "@/components/aos/depth-card";
 import { BuildPathConstellation } from "@/components/aos/build-path-constellation";
 import { MilestoneRail } from "@/components/aos/milestone-rail";
+import type { AiBuildStatus } from "@/types/database";
 
 const SPRING = [0.22, 1, 0.36, 1] as const;
 const POP = [0.22, 1.5, 0.36, 1] as const;
@@ -24,14 +26,29 @@ const STEPS = [
   { icon: MessageSquare, label: "You review & ship", sub: "One round of changes, then it's yours." },
 ];
 
+type BuildSummary = { status: AiBuildStatus; deploymentUrl: string | null; error: string | null };
+
+// Which STEPS index is current. A failed build stays on "Build begins" so the
+// rail shows where it stalled rather than pretending it advanced.
+function activeStepIndex(build: BuildSummary | null): number {
+  if (!build || build.status === "pending") return 0;
+  if (build.status === "live") return 2;
+  return 1;
+}
+
 export function AIBuildContent({
+  commitmentId,
   opportunityTitle,
   answers,
+  build,
 }: {
+  commitmentId: string;
   opportunityTitle: string;
   answers: string[];
+  build: BuildSummary | null;
 }) {
   const router = useRouter();
+  const activeStep = activeStepIndex(build);
 
   return (
     <main className="relative min-h-dvh bg-aos-bg overflow-hidden">
@@ -59,7 +76,13 @@ export function AIBuildContent({
           transition={{ duration: 0.6, delay: 0.1, ease: SPRING }}
           className="font-serif text-[40px] text-aos-text tracking-[-0.03em] leading-[1.05]"
         >
-          Your build is queued.
+          {build?.status === "live"
+            ? "Your build is live."
+            : build?.status === "failed"
+            ? "The build stalled."
+            : build?.status === "building"
+            ? "Building now."
+            : "Your build is queued."}
         </motion.h1>
 
         <motion.p
@@ -68,11 +91,87 @@ export function AIBuildContent({
           transition={{ duration: 0.6, delay: 0.18, ease: SPRING }}
           className="font-serif italic text-[16px] text-aos-secondary leading-relaxed mt-3"
         >
-          We&apos;ve received your commitment. The AI is reviewing your lens
-          inputs and will begin building{" "}
-          <span className="text-aos-gold">{opportunityTitle}</span> within
-          24 hours.
+          {build?.status === "live" ? (
+            <>You can open it now. We&apos;ll email you when it&apos;s ready to share.</>
+          ) : build?.status === "failed" ? (
+            <>Something broke during deployment. The details are below.</>
+          ) : (
+            <>
+              We&apos;ve received your commitment. The AI is reviewing your lens
+              inputs and will begin building{" "}
+              <span className="text-aos-gold">{opportunityTitle}</span> within
+              24 hours.
+            </>
+          )}
         </motion.p>
+
+        {/* Build status — only shown once a build has been triggered. */}
+        {build && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.22, ease: SPRING }}
+            className={
+              "mt-6 p-5 rounded-[18px] border " +
+              (build.status === "live"
+                ? "bg-aos-surface border-aos-gold/[0.35]"
+                : build.status === "failed"
+                ? "bg-[rgba(255,80,80,0.06)] border-[rgba(255,80,80,0.30)]"
+                : "bg-aos-surface border-aos-border")
+            }
+          >
+            {build.status === "live" && build.deploymentUrl ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-aos-gold">
+                    Live URL
+                  </div>
+                  <div className="font-mono text-[13px] text-aos-text mt-1 truncate">
+                    {build.deploymentUrl}
+                  </div>
+                </div>
+                <Link
+                  href={build.deploymentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="focus-gold inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] bg-aos-text text-aos-bg text-[12px] font-semibold shrink-0"
+                >
+                  Open <ExternalLink size={12} strokeWidth={2.5} />
+                </Link>
+              </div>
+            ) : build.status === "failed" ? (
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-red-300">Error</div>
+                <p className="text-[13px] text-aos-text mt-1 leading-snug">{build.error ?? "Unknown error."}</p>
+                <Link
+                  href={`/commit/${commitmentId}/ai-build/architecture`}
+                  className="inline-flex items-center gap-1.5 mt-3 text-[12px] text-aos-secondary hover:text-aos-text transition-colors"
+                >
+                  Review the plan and try again <ArrowRight size={12} strokeWidth={2.5} />
+                </Link>
+              </div>
+            ) : (
+              <div className="text-[13px] text-aos-secondary">Build in progress — refresh in a minute.</div>
+            )}
+          </motion.div>
+        )}
+
+        {/* Architecture CTA — only when no build has been triggered yet. */}
+        {!build && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.22, ease: SPRING }}
+            className="mt-7"
+          >
+            <Link
+              href={`/commit/${commitmentId}/ai-build/architecture`}
+              className="focus-gold inline-flex items-center gap-2 px-5 py-3 rounded-[14px] text-[14px] font-semibold tracking-[-0.01em] bg-aos-gold/10 border border-aos-gold/[0.35] text-aos-gold hover:bg-aos-gold/[0.16] transition-colors"
+            >
+              Review the architecture <ArrowRight size={14} strokeWidth={2.5} />
+            </Link>
+          </motion.div>
+        )}
 
         {/* Inputs becoming a system */}
         <motion.div
@@ -123,7 +222,7 @@ export function AIBuildContent({
           <MilestoneRail
             steps={STEPS.map((step, i) => ({
               label: step.label,
-              status: i === 0 ? "active" : "upcoming",
+              status: i < activeStep ? "done" : i === activeStep ? "active" : "upcoming",
             }))}
             className="mb-5"
           />

@@ -263,24 +263,25 @@ built and live under `app/`.
 ## Current Status (Honest Assessment)
 
 ### What works
-- **Database** — migrations 001–004 applied: initial schema, profile extensions (domains, audience, commitment_level, build_mode), opportunity domain tagging for personalization, email-state columns (welcomed_at, last_nudged_at). 5 real opportunities seeded. RLS on user tables; auth trigger creates profiles on signup.
+- **Database** — migration files 001–009 on disk: initial schema, profile extensions (domains, audience, commitment_level, build_mode), opportunity domain tagging, email-state columns (welcomed_at, last_nudged_at), `email_events` log, billing fields (tier, pro_until, stripe_customer_id), opportunity context (market_hint, source_links), opportunity discovery (008: `ideas`, `evaluation_runs` — committed, not applied), `ai_builds` table (009). 5 real opportunities seeded. RLS on user tables; auth trigger creates profiles on signup. **Note:** see FOLLOWUPS.md for which migrations still need to be applied in the Supabase SQL editor (005, 006 at minimum; verify 007–009 before relying on them).
 - **Auth** — Supabase email + Google + GitHub OAuth. Callback redirects to onboarding when the profile is incomplete.
 - **Onboarding flow** — all 5 questions live (`/onboarding/build-mode`, `/domains`, `/audience`, `/commitment`, `/advantage`) plus the Personalizing constellation reveal.
 - **Core screens, redesigned** — landing, feed (personalized by user-selected domains), opportunity detail, Lens wizard (full-screen serif), Sprint Dashboard, weekly check-in. Dark warm-ink palette, editorial serif, spring motion, hover/focus-ring audit applied across interactive elements.
 - **The Ceremony** — full-screen route at `/commit/[id]/ceremony` with card fan-in, document fold, hold-to-sign, gold seal, bell tone, gold-dust shimmer, haptic feedback.
-- **Non-builder path** — `/commit/[id]/ai-build` handoff screen; feed and opportunity detail branch on `build_mode`.
+- **Non-builder path** — `/commit/[id]/ai-build` handoff (status-aware: queued / building / live / failed, driven by the latest `ai_builds` row) + `/ai-build/architecture` approval card with hold-to-begin. Feed and opportunity-detail CTAs do not yet branch on `build_mode` (see Known Debt).
+- **AI build pipeline** — `lib/ai-build/` is a working compile → materialize → deploy stack. `compile.ts` is a pure deterministic Lens→BuildConfig compiler (rule-based wedge classifier + hand-written copy templates). `materialize.ts` walks `starter-kit/` and substitutes a generated `kit.config.ts`. `deploy.ts` ships the kit to Vercel via the REST API (`/v2/files` → `/v13/deployments`) and writes status to `ai_builds`. `run.ts` is the orchestrator. Needs `VERCEL_TOKEN` (+ optional `VERCEL_TEAM_ID`, `AI_BUILD_ANTHROPIC_KEY`, `AI_BUILD_KIT_SUPABASE_*`).
 - **Profile + Preferences** — `/profile` (the "You" tab) and `/preferences` with bottom-sheet edits that reuse onboarding components. Build mode is mutable.
 - **Ship flow** — `/commit/[id]/ship` for self-reporting a shipped URL.
-- **Email** — `lib/email/` (Resend client + templates) sends transactional welcome and weekly check-in nudges. Cron at `/api/cron/checkin-nudge` runs via `vercel.json`. Idempotency via `welcomed_at` / `last_nudged_at`.
+- **Email** — `lib/email/` (Resend client + templates) sends transactional welcome and weekly check-in nudges. Cron at `/api/cron/checkin-nudge` runs via `vercel.json`. Idempotency via `welcomed_at` / `last_nudged_at`. Every send logs to `email_events` (sent/failed); cron skips suppressed addresses.
+- **Email observability** — `/api/webhooks/resend` verifies Svix signatures and writes delivery/bounce/complaint/open/click events to `email_events`. Needs `RESEND_WEBHOOK_SECRET` + dashboard config (FOLLOWUPS.md).
+- **Stripe Pro tier (code)** — `profiles.tier` / `pro_until` / `stripe_customer_id`; `lib/billing.ts` (`effectiveTier`, `activeCommitmentCap`: free=1, pro=3); `lib/stripe/client.ts` (raw fetch, no SDK); `/upgrade` + `/upgrade/success`; `/api/webhooks/stripe` handles checkout + subscription lifecycle. Needs Stripe dashboard config (FOLLOWUPS.md).
+- **Founder analytics** — `/founders` with `FOUNDERS_EMAILS` allowlist. 404s for anyone not in the list.
 - **Reputation** — `lib/reputation.ts` derives Explorer / Builder / Shipper / Proven from actions.
-
-### Since built (previously on this list)
-- Founder analytics (`/founders`, env-gated), `email_events` + Resend webhook (`/api/webhooks/resend`), Stripe Pro tier (`lib/billing.ts`, `lib/stripe/`, `/api/webhooks/stripe`, `/upgrade`).
 
 ### What's not built yet
 - Opportunity-engine Phase 2 completion — the discovery pipeline + on-demand route live on `feat/opportunity-engine-phase2`, gated on the human verification batch (`docs/aos/opportunity-engine/HANDOFF.md`); the minimal discovery UI (SPEC step 10) is unbuilt.
 - Phase 5+ automated signal collection for opportunities (feed is still manually curated)
-- AI build service integration (handoff exists; the actual build pipeline is TBD)
+- AI build LLM rewrite pass (Phase B) — `compile.ts` currently fills every kit slot via deterministic copy templates; the plan is to swap `copyTemplates.*` for LLM rewrites with the deterministic strings as prompt scaffold
 
 ### Naming
 Still undecided. Code uses "AOS" everywhere.
@@ -410,8 +411,9 @@ Non-visual:
 - **Step-9 route runtime verification** pending the human batch (`docs/aos/opportunity-engine/HANDOFF.md`: apply 008 → persist-probe → Sonnet smoke → live route pass).
 - **Vercel Node version:** decide whether to pin Node 24+ so `min-release-age` is enforced in CI/Vercel builds (see Supply-chain posture).
 - **Honesty-gate structural-enforcement question** (noted, not refactored): the gate's load-bearing layer is Zod-at-parse-time (`lib/opportunity-engine/schema.ts`); the API wire schema is stripped of min-constraints by the SDK, and the DB checks only the verdict enum. Open question whether more of the gate belongs in the DB/API layers.
-- **Opportunity detail CTA doesn't branch on `build_mode`** — `app/(app)/opportunity/[slug]/page.tsx` hardcodes "Evaluate this opportunity"; the onboarding spec calls for a non-builder variant. Content/logic drift, not styling — do not fix on a visual branch.
+- **Opportunity detail and feed CTAs don't branch on `build_mode`** — `app/(app)/opportunity/[slug]/page.tsx` hardcodes "Evaluate this opportunity" and `app/(app)/feed/page.tsx` has no non-builder CTA; the onboarding spec calls for a "Have AI build this" variant. Content/logic drift, not styling — do not fix on a visual branch.
+- **AI build migration renumbered:** `ai_builds` was `008_ai_builds.sql` on the Windows branch and is now `009_ai_builds.sql` (the remote's `008_opportunity_discovery.sql` kept its number). If the live DB already has `ai_builds` from the old file, skip 009 rather than re-running it.
 
 ---
 
-*Last updated: July 2026. Status: Phases 0–5 substantially shipped — onboarding, redesigned core screens, the Ceremony, profile/preferences, transactional email + check-in nudge cron, Stripe Pro scaffolding, founders page all live. Opportunity-engine Phase 2 (discovery pipeline + step-9 route) is on `feat/opportunity-engine-phase2`, gated on the human verification batch. Visual second wave shipped; remainder is Known Debt above.*
+*Last updated: November 2026. Status: Phases 0–5 substantially shipped — onboarding, redesigned core screens, the Ceremony, profile/preferences, transactional email + check-in nudge cron, email observability, Stripe Pro scaffolding, founders page, and the AI build compile→deploy pipeline with its architecture approval card are all in code. Opportunity-engine Phase 2 (discovery pipeline + step-9 route) is on `feat/opportunity-engine-phase2`, gated on the human verification batch. Active queue: applying migrations 005/006 (and verifying 007–009) in the live DB, plus manual Stripe + Resend dashboard wiring (see `FOLLOWUPS.md`). Visual second wave shipped; remainder is Known Debt above.*

@@ -38,10 +38,7 @@ Tracked tasks deferred for later. Pick up the next item by feeding it back to Cl
 3. The webhook signature verification can switch to `stripe.webhooks.constructEvent()` — drop the local HMAC implementation.
 
 ### Stale events analytics column
-**When:** next chore pass.
-**Why deferred:** Pre-existing bug separate from this batch.
-**Steps:**
-- `app/(app)/dashboard/page.tsx` inserts into `events` with `event_name` + `payload` columns, but the schema is `event` + `properties`. Pick one and align (or migrate).
+**Status:** Fixed for the ship flow — `app/(app)/commit/[id]/ship/page.tsx` now writes `event` + `properties`. Leaving this entry to flag that any future analytics writes must use the schema column names (`event`, `properties`), not the `event_name` / `payload` shape that had crept in.
 
 ---
 

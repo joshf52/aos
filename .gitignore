@@ -9,6 +9,9 @@
 # testing
 /coverage
 
+# opportunity-engine eval research cache (eval-only; never committed)
+/eval/.cache/
+
 # next.js
 /.next/
 /out/

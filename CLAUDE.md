@@ -188,7 +188,7 @@ The serif is the soul of the brand. Use it for any "thesis moment." Never for bo
 - **Backend:** Next.js API routes + Server Actions
 - **Database:** Supabase (Postgres) with Row Level Security
 - **Auth:** Supabase Auth (email + Google + GitHub OAuth)
-- **AI:** Anthropic Claude API (`claude-sonnet-4-20250514`) + OpenAI text-embedding-3-small
+- **AI:** Anthropic Claude API (`claude-opus-4-8`, fallback `claude-sonnet-5`) + OpenAI text-embedding-3-small
 - **Deployment:** Vercel
 - **Email:** Resend
 

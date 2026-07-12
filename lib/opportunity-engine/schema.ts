@@ -113,6 +113,16 @@ const pioneerNeedsOpenSpace = (v: {
   v.occupancy.level === "emerging" ||
   v.occupancy.level === "no_evidence_found";
 
+// Extracted so step 6 (score.ts) can reuse the exact same scores contract for
+// its model-facing call schema, instead of redefining it.
+export const FilterScoresSchema = z
+  .array(FilterScoreSchema)
+  .length(4)
+  .refine(
+    (s) => new Set(s.map((x) => x.filter)).size === 4,
+    "scores must cover all four filters with no duplicates",
+  );
+
 // Base object (no top-level refine) so step 6 can `.omit()` the fields the model
 // does not generate (idea_id / run_id / schema_version are attached by us).
 export const VerdictObjectSchema = z.object({
@@ -122,13 +132,7 @@ export const VerdictObjectSchema = z.object({
   searches_performed: z.number().int().min(0),
   evidence: z.array(EvidenceSchema),
   occupancy: OccupancySchema,
-  scores: z
-    .array(FilterScoreSchema)
-    .length(4)
-    .refine(
-      (s) => new Set(s.map((x) => x.filter)).size === 4,
-      "scores must cover all four filters with no duplicates",
-    ),
+  scores: FilterScoresSchema,
   verdict: z.enum(VERDICTS),
   kill_condition: z.string().min(1),
   brief_summary: z.string().min(1),

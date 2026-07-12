@@ -24,6 +24,7 @@ const config: Config = {
           "accent-soft":  "var(--aos-accent-soft)",
           gold:           "#D4A574",
           "gold-soft":    "var(--aos-gold-soft)",
+          energy:         "#3DB87A",
         },
         ink: {
           500: "#34343F",
@@ -41,6 +42,27 @@ const config: Config = {
       },
       borderRadius: {
         "4xl": "2rem",
+      },
+      keyframes: {
+        drift: {
+          "0%, 100%": { transform: "translate(0, 0)" },
+          "33%": { transform: "translate(2%, -3%)" },
+          "66%": { transform: "translate(-2%, 2%)" },
+        },
+        pulseRail: {
+          "0%, 100%": { opacity: "0.25", transform: "translateY(-10%)" },
+          "50%": { opacity: "0.75", transform: "translateY(10%)" },
+        },
+        shipPop: {
+          "0%": { opacity: "0", transform: "scale(0.85)" },
+          "40%": { opacity: "1", transform: "scale(1.04)" },
+          "100%": { opacity: "0", transform: "scale(1.4)" },
+        },
+      },
+      animation: {
+        drift: "drift 20s ease-in-out infinite",
+        pulseRail: "pulseRail 3s ease-in-out infinite",
+        shipPop: "shipPop 900ms cubic-bezier(0.22, 1.5, 0.36, 1) both",
       },
     },
   },

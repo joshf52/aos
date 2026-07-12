@@ -16,6 +16,12 @@ export type EmailStatus =
   | "bounced"
   | "complained"
   | "delivery_delayed";
+export type EvaluationRunStatus =
+  | "pending"
+  | "researching"
+  | "scoring"
+  | "complete"
+  | "failed";
 
 export interface Database {
   public: {
@@ -293,6 +299,110 @@ export interface Database {
           metadata?: Json | null;
         };
       };
+      ideas: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          author_id: string;
+          title: string;
+          thesis: string;
+          space: string;
+          claimed_advantage: string;
+          links: SourceLink[];
+          promoted_opportunity_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          author_id: string;
+          title: string;
+          thesis: string;
+          space: string;
+          claimed_advantage: string;
+          links?: SourceLink[];
+          promoted_opportunity_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          author_id?: string;
+          title?: string;
+          thesis?: string;
+          space?: string;
+          claimed_advantage?: string;
+          links?: SourceLink[];
+          promoted_opportunity_id?: string | null;
+        };
+      };
+      // evaluation_runs.verdict values: keep in sync with VerdictName in lib/opportunity-engine/schema.ts
+      evaluation_runs: {
+        Row: {
+          id: string;
+          created_at: string;
+          idea_id: string;
+          author_id: string;
+          status: EvaluationRunStatus;
+          model: string | null;
+          searches_performed: number;
+          verdict:
+            | "pioneer"
+            | "fast-follow-on-execution"
+            | "build-for-intrinsic-use"
+            | "dont-bother"
+            | null;
+          verdict_json: Json | null;
+          brief_md: string | null;
+          kill_condition: string | null;
+          error: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          idea_id: string;
+          author_id: string;
+          status?: EvaluationRunStatus;
+          model?: string | null;
+          searches_performed?: number;
+          verdict?:
+            | "pioneer"
+            | "fast-follow-on-execution"
+            | "build-for-intrinsic-use"
+            | "dont-bother"
+            | null;
+          verdict_json?: Json | null;
+          brief_md?: string | null;
+          kill_condition?: string | null;
+          error?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          idea_id?: string;
+          author_id?: string;
+          status?: EvaluationRunStatus;
+          model?: string | null;
+          searches_performed?: number;
+          verdict?:
+            | "pioneer"
+            | "fast-follow-on-execution"
+            | "build-for-intrinsic-use"
+            | "dont-bother"
+            | null;
+          verdict_json?: Json | null;
+          brief_md?: string | null;
+          kill_condition?: string | null;
+          error?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -307,3 +417,5 @@ export type DecisionLens = Database["public"]["Tables"]["decision_lenses"]["Row"
 export type Commitment = Database["public"]["Tables"]["commitments"]["Row"];
 export type Checkin = Database["public"]["Tables"]["checkins"]["Row"];
 export type EmailEvent = Database["public"]["Tables"]["email_events"]["Row"];
+export type IdeaRow = Database["public"]["Tables"]["ideas"]["Row"];
+export type EvaluationRun = Database["public"]["Tables"]["evaluation_runs"]["Row"];

@@ -2,6 +2,10 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { FadeIn, Stagger } from "@/components/motion";
 import { Button } from "@/components/ui/button";
+import { AOSAnimatedBackground } from "@/components/aos/animated-background";
+import { AOSDepthCard } from "@/components/aos/depth-card";
+import { HeroStage } from "@/components/aos/hero-scene/hero-stage";
+import { BuildPathConstellation } from "@/components/aos/build-path-constellation";
 
 const MOVEMENTS = [
   {
@@ -52,81 +56,18 @@ const SAMPLE_OPPORTUNITIES = [
 export default function LandingPage() {
   return (
     <main className="relative min-h-dvh bg-aos-bg overflow-x-hidden">
-      {/* Grain — restraint, not gloss */}
-      <div
-        aria-hidden
-        className="absolute inset-0 z-0 pointer-events-none"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-          opacity: 0.03,
-        }}
-      />
-
-      {/* One quiet ambient gold — the only atmospheric element */}
-      <div
-        aria-hidden
-        className="absolute -top-40 left-1/2 -translate-x-1/2 w-[820px] h-[820px] z-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(circle, rgba(212,165,116,0.10) 0%, transparent 60%)",
-          filter: "blur(60px)",
-        }}
-      />
+      <AOSAnimatedBackground variant="editorial" grain className="absolute inset-0 z-0" />
 
       {/* ─────────────────────────  HERO  ───────────────────────── */}
-      <section className="relative z-[1] px-6 pt-32 sm:pt-48 pb-24 sm:pb-32 max-w-3xl mx-auto">
-        <Stagger delayChildren={0.05} staggerChildren={0.1}>
-          <FadeIn>
-            <div className="flex items-center gap-3">
-              <span className="block w-1 h-1 rounded-full bg-aos-gold/60" />
-              <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary">
-                AOS — Builder&apos;s Framework
-              </p>
-            </div>
-          </FadeIn>
-
-          <FadeIn>
-            <h1
-              className="font-serif mt-10 text-aos-text leading-[0.95] tracking-[-0.03em] text-balance text-8xl md:text-[9rem] lg:text-[11rem]"
-            >
-              Build with{" "}
-              <span className="text-gold-gradient italic">conviction</span>.
-            </h1>
-          </FadeIn>
-
-          <FadeIn>
-            <p
-              className="font-serif italic text-aos-secondary leading-snug mt-8 max-w-xl"
-              style={{ fontSize: "clamp(20px, 3.2vw, 26px)" }}
-            >
-              A decision and leverage engine for the people building products
-              that matter — whether they write code or not.
-            </p>
-          </FadeIn>
-
-          <FadeIn>
-            <p className="text-[15px] leading-relaxed text-aos-secondary mt-6 max-w-md">
-              Curated opportunities. A framework for deciding. A thirty-day
-              sprint to ship.
-            </p>
-          </FadeIn>
-
-          <FadeIn>
-            <div className="flex flex-wrap items-center gap-5 mt-12">
-              <Button variant="primary" size="lg" href="/auth/signup">
-                Begin your sprint
-                <ArrowRight size={16} strokeWidth={2.5} />
-              </Button>
-              <Link
-                href="/auth/login"
-                className="text-[14px] text-aos-secondary hover:text-aos-text transition-colors"
-              >
-                Already a builder? Sign in
-              </Link>
-            </div>
-          </FadeIn>
-        </Stagger>
-      </section>
+      <HeroStage ctaHref="/auth/signup" />
+      <div className="relative z-[1] flex justify-center pb-24 sm:pb-32 -mt-6">
+        <Link
+          href="/auth/login"
+          className="text-[14px] text-aos-secondary hover:text-aos-text transition-colors"
+        >
+          Already a builder? Sign in
+        </Link>
+      </div>
 
       {/* hairline rule — editorial spine */}
       <div className="relative z-[1] max-w-3xl mx-auto px-6">
@@ -154,7 +95,7 @@ export default function LandingPage() {
         >
           {MOVEMENTS.map((m, i) => (
             <FadeIn key={m.title}>
-              <div className="card-interactive h-full bg-ink-700 [background-image:none] border-ink-500">
+              <AOSDepthCard interactive glow="dual" className="h-full">
                 <div className="font-mono text-[10px] tracking-[0.24em] uppercase text-aos-tertiary mb-5">
                   {String(i + 1).padStart(2, "0")}
                 </div>
@@ -164,10 +105,29 @@ export default function LandingPage() {
                 <p className="text-[14px] leading-relaxed text-aos-secondary mt-4">
                   {m.body}
                 </p>
-              </div>
+              </AOSDepthCard>
             </FadeIn>
           ))}
         </Stagger>
+      </section>
+
+      {/* ─────────────────  BUILD PATH CONSTELLATION  ───────────────── */}
+      <section className="relative z-[1] px-6 pt-4 pb-24 max-w-5xl mx-auto">
+        <FadeIn>
+          <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-aos-tertiary mb-4 text-center">
+            From signal to system
+          </p>
+          <h2
+            className="font-serif text-aos-text leading-[1.05] tracking-[-0.02em] text-balance text-center max-w-2xl mx-auto"
+            style={{ fontSize: "clamp(34px, 5.5vw, 56px)" }}
+          >
+            Loose answers converge into a shipped MVP.
+          </h2>
+        </FadeIn>
+
+        <div className="mt-16">
+          <BuildPathConstellation />
+        </div>
       </section>
 
       {/* ─────────────────  OPPORTUNITY PREVIEW  ───────────────── */}
@@ -199,7 +159,7 @@ export default function LandingPage() {
         >
           {SAMPLE_OPPORTUNITIES.map((opp) => (
             <FadeIn key={opp.title}>
-              <article className="card-interactive group">
+              <AOSDepthCard as="article" interactive glow="dual" className="group">
                 <div className="flex items-center gap-3 mb-6">
                   <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
                     {opp.category}
@@ -224,7 +184,7 @@ export default function LandingPage() {
                     <ArrowRight size={13} strokeWidth={2} />
                   </span>
                 </div>
-              </article>
+              </AOSDepthCard>
             </FadeIn>
           ))}
         </Stagger>

@@ -6,7 +6,7 @@
 // below to change the interactive feel).
 import { useReducedMotion, motion } from "framer-motion";
 import Link from "next/link";
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 type Glow = "gold" | "green" | "dual" | "none";
@@ -66,10 +66,16 @@ export function AOSDepthCard({
   const [tilt, setTilt] = useState({ rx: 0, ry: 0 });
   const [sheen, setSheen] = useState({ x: 0, y: 0 });
   const [hovered, setHovered] = useState(false);
+  // Gate interactive/reduced-motion behavior behind a mount flag so the server
+  // and the first client render are identical (useReducedMotion is null on the
+  // server → truthy). Without this, a reduced-motion client omits the sheen the
+  // server rendered, causing a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const showGold = glow === "gold" || glow === "dual";
   const showGreen = glow === "green" || glow === "dual";
-  const canTilt = interactive && !prefersReducedMotion;
+  const canTilt = interactive && mounted && !prefersReducedMotion;
 
   const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
     if (!canTilt || !ref.current) return;
@@ -96,7 +102,7 @@ export function AOSDepthCard({
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={handlePointerLeave}
       animate={
-        interactive && !prefersReducedMotion
+        canTilt
           ? {
               y: hovered ? LIFT_Y : 0,
               rotateX: tilt.rx,
@@ -109,7 +115,7 @@ export function AOSDepthCard({
       style={{
         background: GRADIENT[intensity],
         border: "1px solid rgba(245,242,237,0.08)",
-        boxShadow: interactive ? undefined : SHADOW[intensity],
+        boxShadow: SHADOW[intensity],
         transformStyle: interactive ? "preserve-3d" : undefined,
         willChange: interactive ? "transform" : undefined,
         perspective: interactive ? 800 : undefined,

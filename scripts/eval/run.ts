@@ -22,6 +22,14 @@ import { researchIdea } from "../../lib/opportunity-engine/research";
 import { withResearchCache } from "../../lib/opportunity-engine/research-cache";
 import { MIN_SEARCHES, VerdictSchema, type Verdict } from "../../lib/opportunity-engine/schema";
 
+// Load .env.local (gitignored) so a locally-provided ANTHROPIC_API_KEY is picked
+// up — a plain tsx process does not auto-load it the way Next.js does.
+try {
+  process.loadEnvFile(".env.local");
+} catch {
+  // no .env.local — rely on ambient env (e.g. an exported ANTHROPIC_API_KEY)
+}
+
 type Outcome =
   | { state: "pending"; reason: string }
   | { state: "error"; reason: string }

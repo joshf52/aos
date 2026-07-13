@@ -10,8 +10,11 @@
 // is off-screen (`active` prop, driven by hero-stage's inView) or the tab is
 // hidden, so an idle hero costs zero GPU/CPU.
 //
-// TUNING KNOBS: NODE_POSITIONS (path shape), PULSE_SPEED, bloom `intensity` /
-// `luminanceThreshold`, Sparkles `count`/`speed`. Copy lives in hero-copy.tsx.
+// TUNING KNOBS: NODE_POSITIONS (path shape), FIT_MARGIN / CAMERA_Z_RANGE
+// (near-node framing), PULSE_SPEED, bloom `intensity` / `luminanceThreshold`,
+// node `emissiveIntensity` (keep emerald ≤ ~1.3 so channels stay under 1.0 and
+// the hue survives — higher clips toward white), Sparkles `count`/`speed`.
+// Copy lives in hero-copy.tsx.
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -22,12 +25,23 @@ const EMERALD = "#3DB87A";
 const GOLD = "#D4A574";
 
 const NODE_POSITIONS: [number, number, number][] = [
-  [-3.4, 0.35, 2.4],
-  [-1.7, -0.35, 1.0],
-  [0, 0.45, -0.5],
-  [1.7, -0.25, -2.0],
-  [3.4, 0.55, -3.6],
+  [-2.9, 0.45, 1.3],
+  [-1.55, -0.5, 0.3],
+  [0.1, 0.5, -1.0],
+  [1.65, -0.35, -2.4],
+  [3.2, 0.65, -3.9],
 ];
+
+// Fit-the-frame margin around the widest node, in world units at that node's
+// depth: icosahedron radius + Float drift + bloom halo. The camera backs away
+// until every node clears the frustum edge by this much, so the near "Idea"
+// node reads as deliberately large rather than cropped — at any aspect ratio.
+const FIT_MARGIN = 0.85;
+const CAMERA_Z_RANGE: [number, number] = [6, 10.5];
+const CAMERA_FOV = 48;
+// Depth of the fog band beyond the camera — matches the original 6..18 range
+// at the default camera distance; the band slides with the camera's fit.
+const FOG_SPAN = 12;
 
 const NODE_LABELS = ["Idea", "Lens", "Build Path", "MVP", "Launch"] as const;
 
@@ -91,6 +105,34 @@ function Scene({ scrollProgress }: { scrollProgress?: number }) {
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
 
+    // Responsive framing: back the camera off until the widest node clears
+    // the frustum by FIT_MARGIN. Solves, per node, the z at which
+    // |x| + margin == (camZ - z) * tan(fovY/2) * aspect.
+    const halfSlope =
+      Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV / 2)) *
+      (state.size.width / Math.max(state.size.height, 1));
+    let fitZ = CAMERA_Z_RANGE[0];
+    for (const [x, , z] of NODE_POSITIONS) {
+      fitZ = Math.max(fitZ, z + (Math.abs(x) + FIT_MARGIN) / halfSlope);
+    }
+    fitZ = Math.min(fitZ, CAMERA_Z_RANGE[1]);
+    state.camera.position.z = THREE.MathUtils.damp(
+      state.camera.position.z,
+      fitZ,
+      3,
+      delta
+    );
+
+    // Fog is camera-relative depth, so it must ride the pull-back: left at a
+    // static [6, 18], a camera at z=10.5 puts the gold Launch node ~78% into
+    // fog — dim enough that it can never clear the bloom threshold, killing
+    // the payoff glow exactly on the narrow viewports the fit logic serves.
+    // Tracking the camera keeps the depth-fade profile identical at any fit.
+    if (state.scene.fog instanceof THREE.Fog) {
+      state.scene.fog.near = state.camera.position.z;
+      state.scene.fog.far = state.camera.position.z + FOG_SPAN;
+    }
+
     // Ambient drift — always on, independent of input.
     const ambientRotY = Math.sin(t * 0.15) * 0.12;
     const ambientRotX = Math.cos(t * 0.12) * 0.05;
@@ -132,7 +174,10 @@ function Scene({ scrollProgress }: { scrollProgress?: number }) {
   return (
     <>
       <ambientLight intensity={0.18} color="#F5F2ED" />
-      <pointLight position={[3, 4, 5]} intensity={1.3} color="#F5F2ED" />
+      {/* decay=0: three's physical falloff (r155+) makes a unit-intensity
+          point light invisible at this distance — we want a classic key light
+          that models the icosahedron facets, not photometric realism. */}
+      <pointLight position={[3, 4, 5]} intensity={1.3} decay={0} color="#F5F2ED" />
 
       <mesh position={[0, 0, -7]}>
         <planeGeometry args={[22, 15]} />
@@ -173,7 +218,7 @@ function Scene({ scrollProgress }: { scrollProgress?: number }) {
               <meshStandardMaterial
                 color={node.color}
                 emissive={node.color}
-                emissiveIntensity={node.isFinal ? 3 : 2.5}
+                emissiveIntensity={node.isFinal ? 1.1 : 0.9}
                 roughness={0.35}
                 metalness={0.1}
                 toneMapped={false}
@@ -225,7 +270,7 @@ export default function PipelineCanvas({
     <Canvas
       dpr={[1, 1.75]}
       gl={{ antialias: true, powerPreference: "high-performance" }}
-      camera={{ position: [0, 0, 6], fov: 48 }}
+      camera={{ position: [0, 0, CAMERA_Z_RANGE[0]], fov: CAMERA_FOV }}
       frameloop={frameloop}
       className={className}
     >
@@ -234,7 +279,7 @@ export default function PipelineCanvas({
       <fog attach="fog" args={["#0A0A0C", 6, 18]} />
       <Scene scrollProgress={scrollProgress} />
       <EffectComposer>
-        <Bloom mipmapBlur intensity={1.1} luminanceThreshold={0.2} luminanceSmoothing={0.9} />
+        <Bloom mipmapBlur intensity={1.15} luminanceThreshold={0.28} luminanceSmoothing={0.5} />
       </EffectComposer>
     </Canvas>
   );

@@ -29,14 +29,29 @@ export function HeroStage({
   className?: string;
 }) {
   const can3D = useHeroCapability();
-  const sectionRef = useRef<HTMLDivElement>(null);
-  // Pause the frameloop the instant the hero scrolls out of view in either
-  // direction, not just once on mount.
-  const inView = useInView(sectionRef, { margin: "-10% 0px -10% 0px" });
 
   if (!can3D) {
     return <LaunchPipelineHero ctaHref={ctaHref} className={className} />;
   }
+
+  return <Hero3DSection ctaHref={ctaHref} className={className} />;
+}
+
+// Must be its own component, mounted only once can3D is true: useInView's
+// effect bails permanently if the ref is null when it first runs, and can3D
+// always starts false (SSR-safe), so observing from HeroStage itself would
+// leave the frameloop gated shut forever — a hero that renders black.
+function Hero3DSection({
+  ctaHref,
+  className,
+}: {
+  ctaHref: string;
+  className: string;
+}) {
+  const sectionRef = useRef<HTMLDivElement>(null);
+  // Pause the frameloop the instant the hero scrolls out of view in either
+  // direction, not just once on mount.
+  const inView = useInView(sectionRef, { margin: "-10% 0px -10% 0px" });
 
   return (
     <section

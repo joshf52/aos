@@ -106,7 +106,10 @@ export default async function FeedPage() {
                   </span>
                 </div>
 
-                <h2 className="font-serif text-6xl text-aos-text leading-[1.05] tracking-[-0.025em] text-balance max-w-3xl">
+                <h2
+                  className="font-serif text-aos-text leading-[1.05] tracking-[-0.025em] text-balance max-w-3xl"
+                  style={{ fontSize: "clamp(30px, 8vw, 60px)" }}
+                >
                   {hero.title}
                 </h2>
 

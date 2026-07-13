@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { FadeIn, Stagger } from "@/components/motion";
+import { AOSAnimatedBackground } from "@/components/aos/animated-background";
+import { AOSDepthCard } from "@/components/aos/depth-card";
 import type { Opportunity } from "@/types/database";
 
 const DAYS = [
@@ -39,7 +41,15 @@ export default async function FeedPage() {
   const [hero, ...rest] = opportunities;
 
   return (
-    <main className="relative min-h-dvh bg-aos-bg">
+    <main className="relative min-h-dvh bg-aos-bg overflow-x-hidden">
+      {/* grain lives in the (app) layout's GrainOverlay — don't double it */}
+      <AOSAnimatedBackground
+        variant="editorial"
+        intensity={0.65}
+        grain={false}
+        className="absolute inset-0 z-0"
+      />
+
       <div className="relative z-[1] px-6 pt-20 pb-32 max-w-5xl mx-auto">
         {/* Editorial date header */}
         <FadeIn>
@@ -58,50 +68,62 @@ export default async function FeedPage() {
           </p>
         </FadeIn>
 
+        {/* hairline rule — editorial spine */}
+        <FadeIn delay={0.05}>
+          <div className="mt-12 h-px bg-gradient-to-r from-transparent via-aos-border-strong to-transparent" />
+        </FadeIn>
+
         {/* Hero opportunity */}
         {hero && (
           <FadeIn delay={0.1}>
             <Link
               href={`/opportunity/${hero.slug}`}
-              className="group relative mt-14 block rounded-[1.5rem] overflow-hidden p-12 sm:p-14
-                         bg-ink-700 border border-ink-500
-                         shadow-[0_20px_60px_rgba(0,0,0,0.4)]
-                         transition-[transform,border-color,box-shadow] duration-500 ease-spring
-                         hover:-translate-y-0.5 hover:border-aos-gold/30
-                         hover:shadow-[0_28px_80px_rgba(0,0,0,0.55),0_0_0_1px_rgba(212,165,116,0.08)]
-                         focus-visible:outline-none focus-visible:border-aos-gold/40"
+              className="group block mt-12 rounded-[26px]
+                         focus-visible:outline-none focus-visible:ring-1
+                         focus-visible:ring-aos-gold/40 focus-visible:ring-offset-4
+                         focus-visible:ring-offset-aos-bg"
             >
-              <div className="flex items-center gap-3 mb-8 flex-wrap">
-                <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
-                  {hero.capability}
-                </span>
-                <span className="text-aos-tertiary">·</span>
-                <span
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
-                             font-mono text-[10px] tracking-[0.14em] uppercase text-aos-gold
-                             bg-aos-gold/[0.08] border border-aos-gold/20"
-                >
-                  Confidence {hero.confidence}/5
-                </span>
-              </div>
+              <AOSDepthCard
+                as="article"
+                interactive
+                tiltScale={0.35}
+                intensity="feature"
+                glow="dual"
+                dotGrid
+                className="p-12 sm:p-14"
+              >
+                <div className="flex items-center gap-3 mb-8 flex-wrap">
+                  <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
+                    {hero.capability}
+                  </span>
+                  <span className="text-aos-tertiary">·</span>
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                               font-mono text-[10px] tracking-[0.14em] uppercase text-aos-gold
+                               bg-aos-gold/[0.08] border border-aos-gold/20"
+                  >
+                    Confidence {hero.confidence}/5
+                  </span>
+                </div>
 
-              <h2 className="font-serif text-6xl text-aos-text leading-[1.05] tracking-[-0.025em] text-balance max-w-3xl">
-                {hero.title}
-              </h2>
+                <h2 className="font-serif text-6xl text-aos-text leading-[1.05] tracking-[-0.025em] text-balance max-w-3xl">
+                  {hero.title}
+                </h2>
 
-              <p className="text-[15px] leading-relaxed text-aos-secondary mt-7 max-w-2xl">
-                {hero.gap}
-              </p>
+                <p className="text-[15px] leading-relaxed text-aos-secondary mt-7 max-w-2xl">
+                  {hero.gap}
+                </p>
 
-              <div className="flex items-center justify-between mt-10 pt-6 border-t border-aos-border">
-                <span className="text-[12px] text-aos-tertiary">
-                  {hero.signal}
-                </span>
-                <span className="text-[14px] text-aos-text inline-flex items-center gap-1.5 transition-transform duration-300 group-hover:translate-x-0.5">
-                  Read the gap
-                  <ArrowRight size={14} strokeWidth={2} />
-                </span>
-              </div>
+                <div className="flex items-center justify-between mt-10 pt-6 border-t border-aos-border">
+                  <span className="text-[12px] text-aos-tertiary">
+                    {hero.signal}
+                  </span>
+                  <span className="text-[14px] text-aos-text inline-flex items-center gap-1.5 transition-transform duration-300 group-hover:translate-x-0.5">
+                    Read the gap
+                    <ArrowRight size={14} strokeWidth={2} />
+                  </span>
+                </div>
+              </AOSDepthCard>
             </Link>
           </FadeIn>
         )}
@@ -121,38 +143,50 @@ export default async function FeedPage() {
               staggerChildren={0.08}
             >
               {rest.map((opp) => (
-                <FadeIn key={opp.id}>
+                <FadeIn key={opp.id} className="h-full">
                   <Link
                     href={`/opportunity/${opp.slug}`}
-                    className="card-interactive group flex flex-col h-full"
+                    className="group block h-full rounded-[26px]
+                               focus-visible:outline-none focus-visible:ring-1
+                               focus-visible:ring-aos-gold/40 focus-visible:ring-offset-4
+                               focus-visible:ring-offset-aos-bg"
                   >
-                    <div className="flex items-center gap-3 mb-6">
-                      <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
-                        {opp.capability}
-                      </span>
-                      <span className="text-aos-tertiary">·</span>
-                      <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-aos-tertiary">
-                        Confidence {opp.confidence}/5
-                      </span>
-                    </div>
+                    <AOSDepthCard
+                      as="article"
+                      interactive
+                      glow="dual"
+                      className="h-full p-7"
+                    >
+                      <div className="flex flex-col h-full">
+                        <div className="flex items-center gap-3 mb-6">
+                          <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
+                            {opp.capability}
+                          </span>
+                          <span className="text-aos-tertiary">·</span>
+                          <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-aos-tertiary">
+                            Confidence {opp.confidence}/5
+                          </span>
+                        </div>
 
-                    <h3 className="font-serif text-[26px] leading-[1.12] text-aos-text tracking-[-0.02em] text-balance mb-4">
-                      {opp.title}
-                    </h3>
+                        <h3 className="font-serif text-[26px] leading-[1.12] text-aos-text tracking-[-0.02em] text-balance mb-4">
+                          {opp.title}
+                        </h3>
 
-                    <p className="text-[14px] leading-relaxed text-aos-secondary">
-                      {firstSentence(opp.gap)}
-                    </p>
+                        <p className="text-[14px] leading-relaxed text-aos-secondary">
+                          {firstSentence(opp.gap)}
+                        </p>
 
-                    <div className="mt-auto flex items-center justify-between gap-4 pt-5 border-t border-aos-border">
-                      <span className="text-[12px] text-aos-tertiary truncate">
-                        {opp.signal}
-                      </span>
-                      <span className="shrink-0 text-[13px] text-aos-text inline-flex items-center gap-1.5 transition-transform duration-300 group-hover:translate-x-0.5">
-                        Read the gap
-                        <ArrowRight size={13} strokeWidth={2} />
-                      </span>
-                    </div>
+                        <div className="mt-auto flex items-center justify-between gap-4 pt-5 border-t border-aos-border">
+                          <span className="text-[12px] text-aos-tertiary truncate">
+                            {opp.signal}
+                          </span>
+                          <span className="shrink-0 text-[13px] text-aos-text inline-flex items-center gap-1.5 transition-transform duration-300 group-hover:translate-x-0.5">
+                            Read the gap
+                            <ArrowRight size={13} strokeWidth={2} />
+                          </span>
+                        </div>
+                      </div>
+                    </AOSDepthCard>
                   </Link>
                 </FadeIn>
               ))}

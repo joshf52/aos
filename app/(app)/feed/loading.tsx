@@ -7,65 +7,66 @@ function Bone({ className, style }: { className?: string; style?: React.CSSPrope
   );
 }
 
+const CARD_SHELL: React.CSSProperties = {
+  background: "linear-gradient(160deg, #1A1A22 0%, #15151A 55%, #12121A 100%)",
+  border: "1px solid rgba(245,242,237,0.06)",
+};
+
 export default function FeedLoading() {
   return (
     <main className="min-h-dvh bg-aos-bg">
-      <div className="px-6 pt-16 pb-28 max-w-lg mx-auto">
+      <div className="px-6 pt-20 pb-32 max-w-5xl mx-auto">
         {/* Date + title */}
-        <Bone className="h-3 w-28 mb-3" />
-        <Bone className="h-9 w-52 mb-2" style={{ borderRadius: 8 }} />
-        <Bone className="h-3.5 w-60" />
+        <Bone className="h-3 w-16 mb-5" />
+        <Bone className="h-14 w-[26rem] max-w-full mb-4" style={{ borderRadius: 10 }} />
+        <Bone className="h-4 w-72 max-w-full" />
 
-        {/* Featured card */}
-        <div
-          className="mt-7 rounded-3xl p-[22px]"
-          style={{
-            background: "rgba(245,242,237,0.02)",
-            border: "1px solid rgba(245,242,237,0.04)",
-          }}
-        >
-          <div className="flex items-start justify-between mb-4">
-            <Bone className="h-6 w-20 rounded-full" />
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <Bone key={i} className="w-[5px] h-[5px] rounded-full" />
-              ))}
-            </div>
+        {/* editorial spine */}
+        <div className="mt-12 h-px bg-gradient-to-r from-transparent via-aos-border-strong to-transparent" />
+
+        {/* Hero opportunity card */}
+        <div className="mt-12 rounded-[26px] p-12 sm:p-14" style={CARD_SHELL}>
+          <div className="flex items-center gap-3 mb-8">
+            <Bone className="h-3 w-24" />
+            <Bone className="h-6 w-28 rounded-full" />
           </div>
-          <Bone className="h-3 w-16 mb-2" />
-          <Bone className="h-7 w-3/4 mb-1" style={{ borderRadius: 6 }} />
-          <Bone className="h-7 w-1/2 mb-4" style={{ borderRadius: 6 }} />
-          <Bone className="h-3.5 w-full mb-1.5" />
-          <Bone className="h-3.5 w-5/6 mb-1.5" />
-          <Bone className="h-3.5 w-4/6 mb-5" />
+          <Bone className="h-12 w-3/4 mb-2" style={{ borderRadius: 8 }} />
+          <Bone className="h-12 w-1/2 mb-7" style={{ borderRadius: 8 }} />
+          <Bone className="h-3.5 w-full max-w-2xl mb-1.5" />
+          <Bone className="h-3.5 w-5/6 mb-10" />
           <div
-            className="flex items-center justify-between pt-4"
-            style={{ borderTop: "1px solid rgba(245,242,237,0.04)" }}
+            className="flex items-center justify-between pt-6"
+            style={{ borderTop: "1px solid rgba(245,242,237,0.06)" }}
           >
-            <Bone className="h-3 w-28" />
-            <Bone className="h-3 w-16" />
+            <Bone className="h-3 w-40" />
+            <Bone className="h-3 w-24" />
           </div>
         </div>
 
-        {/* Also for you */}
-        <div className="mt-9">
-          <Bone className="h-3 w-20 mb-4" />
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3.5 p-4 rounded-[18px] mb-2"
-              style={{
-                background: "rgba(245,242,237,0.02)",
-                border: "1px solid rgba(245,242,237,0.04)",
-              }}
-            >
-              <div className="flex-1">
-                <Bone className="h-2.5 w-12 mb-2" />
-                <Bone className="h-5 w-40" style={{ borderRadius: 6 }} />
+        {/* Also this week */}
+        <div className="mt-20">
+          <Bone className="h-3 w-28 mb-6" />
+          <div className="grid md:grid-cols-2 gap-5">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="rounded-[26px] p-7" style={CARD_SHELL}>
+                <div className="flex items-center gap-3 mb-6">
+                  <Bone className="h-2.5 w-20" />
+                  <Bone className="h-2.5 w-24" />
+                </div>
+                <Bone className="h-6 w-5/6 mb-2" style={{ borderRadius: 6 }} />
+                <Bone className="h-6 w-3/5 mb-4" style={{ borderRadius: 6 }} />
+                <Bone className="h-3.5 w-full mb-1.5" />
+                <Bone className="h-3.5 w-4/6 mb-6" />
+                <div
+                  className="flex items-center justify-between pt-5"
+                  style={{ borderTop: "1px solid rgba(245,242,237,0.06)" }}
+                >
+                  <Bone className="h-3 w-28" />
+                  <Bone className="h-3 w-20" />
+                </div>
               </div>
-              <Bone className="h-4 w-4 rounded-full shrink-0" />
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </main>

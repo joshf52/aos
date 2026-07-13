@@ -45,6 +45,7 @@ export function AOSDepthCard({
   as = "div",
   href,
   interactive = false,
+  tiltScale = 1,
   glow = "gold",
   intensity = "subtle",
   dotGrid = false,
@@ -55,6 +56,11 @@ export function AOSDepthCard({
   as?: "div" | "article" | "section";
   href?: string;
   interactive?: boolean;
+  /** 0..1 multiplier on the pointer tilt + hover lift — full strength suits
+   *  grid-sized cards; large editorial surfaces should pass ~0.3-0.5 so the
+   *  same motion language stays calm at scale. Sheen and shadow are not
+   *  scaled: the hover affordance stays legible. */
+  tiltScale?: number;
   glow?: Glow;
   intensity?: Intensity;
   dotGrid?: boolean;
@@ -82,7 +88,7 @@ export function AOSDepthCard({
     const rect = ref.current.getBoundingClientRect();
     const px = (e.clientX - rect.left) / rect.width - 0.5;
     const py = (e.clientY - rect.top) / rect.height - 0.5;
-    setTilt({ rx: -py * MAX_TILT * 2, ry: px * MAX_TILT * 2 });
+    setTilt({ rx: -py * MAX_TILT * 2 * tiltScale, ry: px * MAX_TILT * 2 * tiltScale });
     setSheen({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
 
@@ -104,7 +110,7 @@ export function AOSDepthCard({
       animate={
         canTilt
           ? {
-              y: hovered ? LIFT_Y : 0,
+              y: hovered ? LIFT_Y * tiltScale : 0,
               rotateX: tilt.rx,
               rotateY: tilt.ry,
               boxShadow: hovered ? SHADOW_HOVER[intensity] : SHADOW[intensity],
@@ -187,7 +193,9 @@ export function AOSDepthCard({
           }}
         />
       )}
-      <div className="relative">{children}</div>
+      {/* h-full so callers can run a flex column to the card's edges when a
+          grid stretches the card (height:100% is a no-op under auto height). */}
+      <div className="relative h-full">{children}</div>
     </MotionComp>
   );
 

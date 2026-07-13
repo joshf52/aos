@@ -95,7 +95,7 @@ export default function LandingPage() {
         >
           {MOVEMENTS.map((m, i) => (
             <FadeIn key={m.title}>
-              <AOSDepthCard interactive glow="dual" className="h-full">
+              <AOSDepthCard interactive glow="dual" className="h-full p-8">
                 <div className="font-mono text-[10px] tracking-[0.24em] uppercase text-aos-tertiary mb-5">
                   {String(i + 1).padStart(2, "0")}
                 </div>
@@ -159,7 +159,7 @@ export default function LandingPage() {
         >
           {SAMPLE_OPPORTUNITIES.map((opp) => (
             <FadeIn key={opp.title}>
-              <AOSDepthCard as="article" interactive glow="dual" className="group">
+              <AOSDepthCard as="article" interactive glow="dual" className="group p-8">
                 <div className="flex items-center gap-3 mb-6">
                   <span className="font-mono text-[10px] tracking-[0.18em] uppercase text-aos-gold">
                     {opp.category}

@@ -35,7 +35,8 @@
       "PowerShell(npm i *)",
       "Bash(start *)",
       "PowerShell(Get-NetTCPConnection *)",
-      "PowerShell(Get-Process *)"
+      "PowerShell(Get-Process *)",
+      "Skill(claude-api)"
     ]
   }
 }

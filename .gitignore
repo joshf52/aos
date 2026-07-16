@@ -11,6 +11,8 @@
 
 # opportunity-engine eval research cache (eval-only; never committed)
 /eval/.cache/
+# subset/smoke eval report (partial run; canonical EVAL_RESULTS.md is committed)
+/docs/aos/opportunity-engine/EVAL_RESULTS.partial.md
 
 # next.js
 /.next/

@@ -6,6 +6,38 @@
 
 ---
 
+## ⚠️ SUPERSEDED — current reality on `feat/opportunity-engine-phase2` (2026-07-15)
+
+**Everything from §0 down is the original Phase-0 inventory taken on `master` before
+any engine code existed. On this branch it is now HISTORICAL. Where the two conflict,
+this section and `HANDOFF.md` win.** The Phase-0 claim that "the discovery loop does
+not exist in any form" (§3) is no longer true on this branch.
+
+What now exists (see `HANDOFF.md` for the step-by-step state + git anchors):
+
+- **The research→score→verdict pipeline is built and committed** (`4c824f7`):
+  `lib/opportunity-engine/{schema,client,research,score,run,research-cache,errors}.ts`.
+  The honesty gate is the load-bearing core — `schema.ts`'s Occupancy discriminated
+  union makes "greenfield/empty" inexpressible, and `deriveVerdict()` reconciles the
+  model's proposed verdict against the deterministic rubric.
+- **AI plumbing exists.** `@anthropic-ai/sdk` is installed and wired (server-side
+  `web_search` sweep + structured-output scoring). `ANTHROPIC_API_KEY` +
+  `OPPORTUNITY_ENGINE_MODEL` / `_MAX_SEARCHES` are in `.env.example`. (§4's "no AI
+  integration" is superseded.) Still no embeddings/pgvector — correctly Phase 5+.
+- **New private tables are designed + migrated (not applied).**
+  `supabase/migrations/008_opportunity_discovery.sql` adds `ideas` + `evaluation_runs`
+  with owner-scoped RLS, a service-role-only write path for runs, and the
+  promotion-hook guard trigger. Typed in `types/database.ts`. **Not yet applied.**
+- **Eval harness is live** (`scripts/eval/run.ts`, `eval/ideas.ts`) with single-case
+  `--limit` / `--only` cost control. `persistRun()` (working tree, uncommitted) is the
+  service-role write for completed runs; `runEvaluation` stays DB-free.
+
+Still absent (roadmap unchanged): automated signal ingestion, embeddings/clustering,
+the on-demand route + UI (SPEC steps 9–11), and the editorial promotion surface
+(Phase 5+). The original inventory below remains accurate for those.
+
+---
+
 ## 0. Note on the missing anchor doc
 
 **`docs/aos/opportunity-engine/PLAN.md` does not exist.** `docs/` is empty except the scaffolded

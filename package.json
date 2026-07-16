@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "eval": "tsx scripts/eval/run.ts",
-    "eval:research": "tsx scripts/eval/research-probe.ts"
+    "eval:research": "tsx scripts/eval/research-probe.ts",
+    "eval:persist-probe": "tsx scripts/eval/persist-probe.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.107.0",

@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
+import { AOSAnimatedBackground } from "@/components/aos/animated-background";
 import { useRouter } from "next/navigation";
 
 const SPRING = [0.22, 1, 0.36, 1] as const;
@@ -29,36 +30,10 @@ export function OnboardingShell({
 
   return (
     <main className="min-h-dvh bg-aos-bg flex flex-col relative overflow-hidden">
-      {/* Grain */}
-      <div
-        aria-hidden
-        className="absolute inset-0 z-0 pointer-events-none"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-          opacity: 0.025,
-        }}
-      />
-      {/* Ambient blobs */}
-      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        <motion.div
-          animate={{ x: [0, 30, -20, 0], y: [0, -30, 20, 0] }}
-          transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-20 -right-16 w-[340px] h-[340px] rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(61,184,122,0.10) 0%, transparent 65%)",
-            filter: "blur(50px)",
-          }}
-        />
-        <motion.div
-          animate={{ x: [0, -20, 30, 0], y: [0, 40, -10, 0] }}
-          transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute bottom-10 -left-16 w-[280px] h-[280px] rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(212,165,116,0.10) 0%, transparent 65%)",
-            filter: "blur(50px)",
-          }}
-        />
-      </div>
+      {/* Shared ambient system — reduced-motion-aware, replaces the old
+          hand-rolled grain + blob loops that ran unconditionally. Kept quiet:
+          onboarding's ambience sits well below the feed's. */}
+      <AOSAnimatedBackground intensity={0.55} />
 
       <div className="relative z-10 flex flex-col flex-1 px-6 pt-14 pb-8 max-w-sm mx-auto w-full">
         {/* Top bar */}

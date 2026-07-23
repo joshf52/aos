@@ -9,7 +9,8 @@
     "lint": "next lint",
     "eval": "tsx scripts/eval/run.ts",
     "eval:research": "tsx scripts/eval/research-probe.ts",
-    "eval:persist-probe": "tsx scripts/eval/persist-probe.ts"
+    "eval:persist-probe": "tsx scripts/eval/persist-probe.ts",
+    "eval:route-probe": "tsx scripts/eval/route-probe.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.107.0",

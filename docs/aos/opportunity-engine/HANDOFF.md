@@ -8,10 +8,13 @@
 
 The research→score→verdict **pipeline is built and committed**; the **honesty gate**
 (schema.ts discriminated union + `deriveVerdict`) is its load-bearing core.
-`persistRun()` (SPEC step 7's persistence half) is now **committed** (`43b8ba6`), and
-a **persist-probe** (`scripts/eval/persist-probe.ts`) is the only thing that verifies
-its DB write — the eval does not. Migration 008 is **written + committed but NOT
-applied**, so neither the probe nor a real run has touched the DB yet. The eval has
+`persistRun()` (SPEC step 7's persistence half) is committed (`43b8ba6`), the
+**persist-probe** (`scripts/eval/persist-probe.ts`, committed `bed1f6f`) is the only
+thing that verifies its DB write — the eval does not. The **step-9 on-demand route**
+(`app/api/discovery/runs`) is now **built with its security-posture pass done at
+build time** (see the step-9 section) and boundary-verified by a $0 **route-probe**;
+its live pass is the human batch's final step. Migration 008 is **written + committed
+but NOT applied**, so no probe or real run has touched the DB yet. The eval has
 **not been run green** since the scoring fix landed — the committed `EVAL_RESULTS.md`
 is a stale pre-fix red run. Nothing here has made a verified live API pass yet; the
 eval is the spend gate.
@@ -29,7 +32,7 @@ eval is the spend gate.
 | 7a | Orchestrator `runEvaluation` (DB-free chain) | ✅ committed `4c824f7` |
 | 7b | **Persistence `persistRun()`** — service-role write to `evaluation_runs` | ✅ committed `43b8ba6`; runtime-unverified until the probe runs on an applied 008 |
 | 8 | Migration `008_opportunity_discovery.sql` (ideas + evaluation_runs + RLS + guard) | ✅ committed `4c824f7`; **NOT applied** to Supabase |
-| 9 | On-demand route (`app/api/discovery/runs`) | ❌ not built — **needs a security-posture pass first**: must verify the requester owns `ideaId` (the FK does not; see RLS posture) |
+| 9 | On-demand route (`app/api/discovery/runs`) | ✅ built (security-posture pass done at build time; see the step-9 section below); runtime-unverified until the human batch's route step |
 | 10 | Minimal UI (`app/(app)/discovery/*`) | ❌ not built |
 | 11 | End-to-end verify | ❌ not done |
 
@@ -50,12 +53,17 @@ were both partly true — the commit over-claimed by exactly one function.
   `EVAL_RESULTS.partial.md` (gitignored) and never clobber the canonical file.
 - `.gitignore` — ignore `EVAL_RESULTS.partial.md`.
 
-**Uncommitted (persist-probe work, this session):**
+**Committed in `bed1f6f`** ("add persist-probe for the evaluation_runs write path"):
 - `scripts/eval/persist-probe.ts` + the `eval:persist-probe` script in `package.json`
   — see the verification-boundary section below.
-- These HANDOFF.md edits (CURRENT_STATE.md was already committed in `43b8ba6`).
 
-Typechecks clean (`npx tsc --noEmit` → 0). No live API call has been made.
+**Step-9 route work (this session):**
+- `app/api/discovery/runs/route.ts` — the on-demand route (see the step-9 section).
+- `lib/opportunity-engine/run.ts` — lifecycle primitives (`createPendingRun`,
+  `advanceRunStatus`, `failRun`, `findInFlightRun`) + `persistRun` optional `runId`.
+- `scripts/eval/route-probe.ts` + the `eval:route-probe` script — $0 boundary probe.
+
+Typechecks + lint clean. No live API call has been made.
 
 ## persistRun verification boundary (read before assuming the eval covers it)
 
@@ -104,6 +112,49 @@ step 2 of the human batch. Absent the probe run, `persistRun` is verified only t
 - `ideas` is the opposite posture — owner CRUD via RLS, plus a `guard_idea_promotion`
   trigger blocking client roles from forging `promoted_opportunity_id`.
 
+## Step 9: the on-demand route (`app/api/discovery/runs`) — posture as built
+
+`POST {ideaId}` → pending run → `researching` → `scoring` → terminal
+`complete`/`failed`. `runtime = "nodejs"`, `maxDuration = 300` (assumes Fluid
+Compute, Vercel's default since 2025; a legacy 60s cap kills the invocation
+mid-run and the stale window below un-wedges the author). Closes the ownership
+gap flagged above:
+
+- **Ownership is structural, not compared.** The idea is read through the
+  user-scoped (RLS) client — the row coming back IS the proof the requester
+  owns it. No service-role read + manual author compare exists. Absent and
+  not-owned are the same 404 (no existence oracle).
+- **`authorId` = session, never body.** Every service-role write receives the
+  session user id; body-supplied decoys are ignored (probed). The composite FK
+  stays behind it as defense-in-depth and re-checks the pair at the pending
+  insert, before any Anthropic spend.
+- **Spend guard (each run ≈ $2):** one in-flight run per author — a
+  non-terminal run created inside `IN_FLIGHT_WINDOW_MS` (10 min) 409s new
+  requests. Non-terminal rows older than the window are stale leftovers of a
+  killed invocation and never block. No schema change. Known residual gaps
+  (accepted for single-founder dogfood, revisit before multi-user): a
+  millisecond-scale race between the in-flight check and the pending insert
+  can admit two concurrent runs (closing it needs a partial unique index —
+  schema change, parked); there is no per-hour cap, so a serial caller can
+  chain runs back-to-back. Audit P2s (hardening for multi-user, not blockers):
+  CSRF posture rests on Supabase's SameSite=Lax cookies app-wide; stage error
+  messages land unscrubbed in the row's author-readable `error` column;
+  `advanceRunStatus`/`failRun` update by bare run id — add author scoping if a
+  future endpoint ever accepts a client-supplied runId.
+- **Lifecycle primitives live in `run.ts`** (`createPendingRun`,
+  `advanceRunStatus`, `failRun`, `findInFlightRun`); `persistRun` gained an
+  optional `runId` that finalizes the existing row (update scoped to
+  `(id, idea_id, author_id)`) instead of inserting — the probe's insert path
+  is unchanged.
+- **Verified by `scripts/eval/route-probe.ts`** (`npm run eval:route-probe`,
+  **$0** — handler driven through fakes, no Supabase/Anthropic/network): 400 /
+  401 / 404 / 409 boundaries each leave the engine un-invoked and write
+  nothing; happy path asserts the exact lifecycle order and session-derived
+  authorId; engine failure marks the row failed and leaks nothing; an infra
+  failure of the ownership read throws (→ bare 500), never masquerading as
+  404. This is the ceiling without live creds — the route's live pass is the
+  human batch's final step.
+
 ## Eval + spend model
 
 - **Cost gate:** the full five-idea eval is live web_search + LLM scoring per idea;
@@ -142,14 +193,39 @@ the smoke needs `ANTHROPIC_API_KEY` (already present). Do them in order:
    OPPORTUNITY_ENGINE_MODEL=claude-sonnet-5 npm run eval -- --only agent-payments
    ```
    Writes `EVAL_RESULTS.partial.md` (canonical `EVAL_RESULTS.md` untouched).
+4. **Route runtime pass** — **~$1** with the Sonnet override (≈ **$2** on the default
+   Opus) — the only live verification of the step-9 route (the route-probe is $0
+   and fake-driven). Needs 008 applied (step 1) + real Supabase creds + `ANTHROPIC_API_KEY`:
+   ```
+   -- (a) Supabase SQL editor: create an idea owned by you, note the returned id
+   insert into ideas (author_id, title, thesis, space, claimed_advantage)
+   values ((select id from auth.users where email = 'joshf5252@gmail.com'),
+           'Route smoke idea', 'one-line thesis', 'some space', 'my edge')
+   returning id;
+   ```
+   ```
+   # (b) run the app locally on the cheap model
+   OPPORTUNITY_ENGINE_MODEL=claude-sonnet-5 npm run dev
+   ```
+   ```js
+   // (c) sign in at http://localhost:3000, then in the devtools console
+   // (session cookies attach automatically):
+   await fetch("/api/discovery/runs", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify({ ideaId: "<id from (a)>" }),
+   }).then(r => r.json());
+   ```
+   Expect `{runId, status: "complete", verdict, searchesPerformed}` after ~1–3
+   min and a matching `complete` row in `evaluation_runs` (verdict_json + flat
+   projections). Optional free checks while it runs: a second POST → 409
+   `run_in_flight`; a POST with a random uuid → 404; signed-out fetch → 401.
 
 ## Next (after the batch)
 
 - **Full canonical run** once the smoke is green: `npm run eval` → ~$10. Regenerates
   `EVAL_RESULTS.md`; iterate `score.ts` until all five reproduce ground truth.
-- Build step 9 (on-demand route) + step 10 (UI). **Step 9 needs a security-posture pass
-  first** — it must verify the authenticated requester owns `ideaId` before calling
-  `persistRun` (the composite FK does not; see RLS posture). Read the frontend-design
-  skill before the UI.
-- Commit the persist-probe + these doc edits to the branch when ready (no PR — Phase 2
-  stays on its branch).
+- Build step 10 (minimal UI: intake form + run status/brief view). Step 9 is done —
+  the route's posture and its residual gaps are recorded in the step-9 section. Read
+  the frontend-design skill before the UI.
+- No PR — Phase 2 stays on its branch until the phase is done.

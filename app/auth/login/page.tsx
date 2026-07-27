@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight } from "lucide-react";
+import { AOSAnimatedBackground } from "@/components/aos/animated-background";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
@@ -70,25 +71,9 @@ function LoginForm() {
 
   return (
     <main className="min-h-dvh bg-aos-bg relative flex flex-col overflow-hidden">
-      {/* Grain */}
-      <div aria-hidden className="absolute inset-0 z-0 pointer-events-none"
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`, opacity: 0.028 }}
-      />
-      {/* Blobs */}
-      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        <motion.div animate={{ x: [0, 50, -30, 0], y: [0, -40, 20, 0] }} transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-20 -left-10 w-[420px] h-[420px] rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(61,184,122,0.16) 0%, transparent 60%)", filter: "blur(60px)" }}
-        />
-        <motion.div animate={{ x: [0, -30, 40, 0], y: [0, 50, -10, 0] }} transition={{ duration: 24, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute bottom-0 -right-10 w-[360px] h-[360px] rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(212,165,116,0.14) 0%, transparent 60%)", filter: "blur(60px)" }}
-        />
-        <motion.div animate={{ x: [0, 30, -20, 0], y: [0, -30, 50, 0] }} transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-[30%] right-[10%] w-[220px] h-[220px] rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(61,184,122,0.08) 0%, transparent 60%)", filter: "blur(40px)" }}
-        />
-      </div>
+      {/* Shared ambient system — reduced-motion-aware, replaces the old
+          hand-rolled grain + blob loops that ran unconditionally. */}
+      <AOSAnimatedBackground intensity={0.7} />
 
       <div className="relative z-10 flex flex-col flex-1 px-6 pt-16 pb-10 max-w-sm mx-auto w-full">
         <motion.div

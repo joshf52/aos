@@ -227,8 +227,7 @@ app/
 │   ├── login/, signup/
 │   ├── callback/route.ts
 │   └── signout/route.ts
-├── api/commit/route.ts
-└── opportunity/preview/
+└── api/                       # cron, webhooks (resend, stripe), discovery
 
 components/
 lib/
@@ -243,11 +242,8 @@ prototypes/
 └── aos-mobile-v2.jsx          # Visual reference for the design language
 ```
 
-Routes to add:
-- `/onboarding/domains`, `/onboarding/audience`, `/onboarding/commitment`, `/onboarding/advantage`, `/onboarding/personalizing`
-- `/profile` (the "You" tab)
-- `/preferences` (with bottom-sheet edit pattern)
-- `/commit/[id]/ceremony` (separate full-screen route)
+All previously-planned routes (onboarding, profile, preferences, ceremony) are
+built and live under `app/`.
 
 ---
 
@@ -278,12 +274,12 @@ Routes to add:
 - **Email** — `lib/email/` (Resend client + templates) sends transactional welcome and weekly check-in nudges. Cron at `/api/cron/checkin-nudge` runs via `vercel.json`. Idempotency via `welcomed_at` / `last_nudged_at`.
 - **Reputation** — `lib/reputation.ts` derives Explorer / Builder / Shipper / Proven from actions.
 
+### Since built (previously on this list)
+- Founder analytics (`/founders`, env-gated), `email_events` + Resend webhook (`/api/webhooks/resend`), Stripe Pro tier (`lib/billing.ts`, `lib/stripe/`, `/api/webhooks/stripe`, `/upgrade`).
+
 ### What's not built yet
-- Founder analytics page (`/founders` with env-gated allowlist)
-- `email_events` table + writes (foundation for Resend webhook + email analytics)
-- Resend webhook (`/api/webhooks/resend`) for delivery / bounce / complaint events
-- Stripe Pro tier — `profiles.tier`, `pro_until`, `stripe_customer_id`, Checkout, `/api/webhooks/stripe`, free 1 / Pro 3 active-commitment cap, upgrade CTA
-- Phase 2 automated signal collection for opportunities (still manually curated)
+- Opportunity-engine Phase 2 completion — the discovery pipeline + on-demand route live on `feat/opportunity-engine-phase2`, gated on the human verification batch (`docs/aos/opportunity-engine/HANDOFF.md`); the minimal discovery UI (SPEC step 10) is unbuilt.
+- Phase 5+ automated signal collection for opportunities (feed is still manually curated)
 - AI build service integration (handoff exists; the actual build pipeline is TBD)
 
 ### Naming
@@ -382,4 +378,40 @@ When designing screens:
 
 ---
 
-*Last updated: May 2026. Status: Phases 0–5 substantially shipped — onboarding, redesigned core screens, the Ceremony, profile/preferences, transactional email + check-in nudge cron are all live. Active queue: founder analytics, email events + Resend webhook, Stripe Pro tier scaffolding (see `FOLLOWUPS.md`).*
+## Standing Conventions (process — earned across runs, treat as hard rules)
+
+- **Headless-only screenshots.** Never open a headed browser window on this machine. Headless Playwright; give WebGL scenes ~8s settle (SwiftShader compiles shaders slowly — early frames look like a black canvas).
+- **Never build against a live dev server.** `next build` runs with the dev server down and `.next` wiped first (a live server has caused phantom module-not-found build failures).
+- **Hydration gating: mount-flag + static resting state.** Client motion that would differ from SSR output is gated behind a `mounted` flag with a static resting state (pattern: `components/aos/depth-card.tsx`). Ambient loops use `animate` without `initial`, so SSR renders the resting state.
+- **Reduced-motion errors = 0 is a merge bar.** Every executed screen is verified normal + reduced-motion, desktop + 390px viewport, with zero console errors. Headless screenshots are the verdict, not code reading.
+- **`AOSDepthCard` is padding-agnostic** — callers supply their own padding.
+- **Git/PR hygiene:** squash-merge; no AI-attribution trailers in commits or PRs; a run ends in a single final report with batched decision gates, not scattered mid-run questions.
+- **Spend gate on all opportunity-engine work.** Zero live Anthropic calls without an explicit human decision. Probes are $0 by design; the eval is the spend gate (`docs/aos/opportunity-engine/HANDOFF.md`).
+
+## Supply-chain posture
+
+Repo-root `.npmrc` pins `min-release-age=7` (refuse packages published <7 days ago) and `save-exact=true`, mirroring the founder's global `~/.npmrc`.
+
+Enforcement, verified empirically (July 2026):
+- **npm 11.13 / Node 24 (local):** `min-release-age` is honored — npm translates it into a rolling `before` timestamp at install time.
+- **npm 10.9 / Node ≤22 (Vercel's default build image):** `min-release-age` is **silently ignored** — no warning, no protection. So on Vercel the pin is currently decoration; real CI enforcement requires the project to run Node 24+ (engines field or dashboard setting) — an open decision, see Known Debt.
+- `save-exact` matters only when a human adds a dependency (it writes exact versions to package.json); it's a no-op for lockfile installs either way.
+
+## Known Debt (ranked)
+
+Visual backlog — from the July 2026 full-route audit. Every remaining screen rated MINOR; there are no major-gap or unstyled screens left. The auth/onboarding ambient swap and root error boundary (the audit's top 2) shipped in the same run.
+1. `app/(app)/dashboard/loading.tsx` — skeleton depicts a layout the page no longer renders (visible pop on slow loads). Restyle, S.
+2. `/upgrade/success` — correct palette but zero entrance motion, unlike every sibling confirmation screen. Restyle, S.
+3. `/founders` — raw stat-tile divs, no motion; acceptable while env-gated. Restyle, S/M.
+4. The Ceremony has no `useReducedMotion` branch (fan-in, gold dust, seal pop play unconditionally). A11y-only fix, but the Ceremony is protected — needs its own careful pass, not a batch edit.
+5. `components/aurora.tsx` is dead code (no imports outside comments/prototype) — delete or keep deliberately.
+
+Non-visual:
+- **Step-9 route runtime verification** pending the human batch (`docs/aos/opportunity-engine/HANDOFF.md`: apply 008 → persist-probe → Sonnet smoke → live route pass).
+- **Vercel Node version:** decide whether to pin Node 24+ so `min-release-age` is enforced in CI/Vercel builds (see Supply-chain posture).
+- **Honesty-gate structural-enforcement question** (noted, not refactored): the gate's load-bearing layer is Zod-at-parse-time (`lib/opportunity-engine/schema.ts`); the API wire schema is stripped of min-constraints by the SDK, and the DB checks only the verdict enum. Open question whether more of the gate belongs in the DB/API layers.
+- **Opportunity detail CTA doesn't branch on `build_mode`** — `app/(app)/opportunity/[slug]/page.tsx` hardcodes "Evaluate this opportunity"; the onboarding spec calls for a non-builder variant. Content/logic drift, not styling — do not fix on a visual branch.
+
+---
+
+*Last updated: July 2026. Status: Phases 0–5 substantially shipped — onboarding, redesigned core screens, the Ceremony, profile/preferences, transactional email + check-in nudge cron, Stripe Pro scaffolding, founders page all live. Opportunity-engine Phase 2 (discovery pipeline + step-9 route) is on `feat/opportunity-engine-phase2`, gated on the human verification batch. Visual second wave shipped; remainder is Known Debt above.*

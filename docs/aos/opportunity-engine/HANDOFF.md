@@ -109,8 +109,13 @@ step 2 of the human batch. Absent the probe run, `persistRun` is verified only t
   before calling `persistRun`** — otherwise a requester could trigger/attribute a run
   on an idea they don't own. **Step 9 ships only after a security-posture pass on this
   ownership check.**
-- `ideas` is the opposite posture — owner CRUD via RLS, plus a `guard_idea_promotion`
-  trigger blocking client roles from forging `promoted_opportunity_id`.
+- `ideas` is the opposite posture — owner SELECT/INSERT/UPDATE via RLS, with a
+  `guard_idea_promotion` trigger blocking client roles from forging
+  `promoted_opportunity_id`, and deliberately **no client DELETE**: deleting an
+  idea cascades to its runs, which would let an owner erase the rows the spend
+  guards count (freeing the one-in-flight slot and resetting the hourly cap).
+  Deletion is a service-role act (account deletion cascades from auth.users —
+  which is also what keeps the persist-probe's cleanup working).
 
 ## Step 9: the on-demand route (`app/api/discovery/runs`) — posture as built
 
@@ -128,29 +133,69 @@ gap flagged above:
   session user id; body-supplied decoys are ignored (probed). The composite FK
   stays behind it as defense-in-depth and re-checks the pair at the pending
   insert, before any Anthropic spend.
-- **Spend guard (each run ≈ $2):** one in-flight run per author — a
-  non-terminal run created inside `IN_FLIGHT_WINDOW_MS` (10 min) 409s new
-  requests. Non-terminal rows older than the window are stale leftovers of a
-  killed invocation and never block. No schema change. Known residual gaps
-  (accepted for single-founder dogfood, revisit before multi-user): a
-  millisecond-scale race between the in-flight check and the pending insert
-  can admit two concurrent runs (closing it needs a partial unique index —
-  schema change, parked); there is no per-hour cap, so a serial caller can
-  chain runs back-to-back. Audit P2s (hardening for multi-user, not blockers):
-  CSRF posture rests on Supabase's SameSite=Lax cookies app-wide; stage error
-  messages land unscrubbed in the row's author-readable `error` column;
-  `advanceRunStatus`/`failRun` update by bare run id — add author scoping if a
-  future endpoint ever accepts a client-supplied runId.
-- **Lifecycle primitives live in `run.ts`** (`createPendingRun`,
-  `advanceRunStatus`, `failRun`, `findInFlightRun`); `persistRun` gained an
-  optional `runId` that finalizes the existing row (update scoped to
-  `(id, idea_id, author_id)`) instead of inserting — the probe's insert path
-  is unchanged.
+- **Spend guard (each run ≈ $2), two layers — the former race is CLOSED:**
+  1. *Structural:* the partial unique index
+     `evaluation_runs_one_in_flight_per_author` (amended into 008 — 008 has
+     never been applied, so no 009) allows at most one non-terminal run per
+     author. The old check-then-insert read is gone. An index predicate cannot
+     contain `now()`, so staleness is deliberately not in the index — instead
+     **recovery is an explicit state transition**: the route sweeps the
+     author's non-terminal rows older than `STALE_AFTER_MS` (10 min) to
+     `failed('timeout…')` immediately before the pending insert, so a unique
+     violation (surfaced as `RunInFlightError`) always means a genuinely live
+     run → 409 naming it. A crashed invocation can therefore never wedge its
+     author.
+  2. *Soft:* a per-author hourly cap — runs created in the last hour (any
+     status; each represented potential spend) ≥ cap → 429. Default 5,
+     tunable via `OPPORTUNITY_ENGINE_MAX_RUNS_PER_HOUR`. The count read races
+     in principle, but the index bounds concurrent damage to one run.
+- **Failure detail is scrubbed.** The author-readable `error` column gets a
+  generic per-stage message (`validation|research|scoring|persistence stage
+  failed`, or the sweep's `timeout…`); full detail (stack included) goes to
+  server logs only. Nothing internal crosses the wire (500 carries only the
+  run id).
+- **Terminal states are immutable (audit fix).** `advanceRunStatus`,
+  `failRun`, and `persistRun`'s finalize path are all scoped to in-flight
+  statuses: a zombie invocation whose row the sweep failed can never
+  resurrect it to researching/scoring or finalize it to complete — the update
+  matches zero rows, the zombie converges to a scrubbed 500, and its verdict
+  is discarded (correct: the author already started a replacement run).
+  `persistRun`'s terminal patch also sets `error: null` so a complete row can
+  never carry a stale error string.
+- **No client DELETE on `ideas` (audit fix).** The `for all` policy was split
+  into select/insert/update: an owner deleting their idea would cascade away
+  its runs, freeing the one-in-flight index slot mid-spend and resetting the
+  hourly cap — an unbounded self-service bypass of both guards. Chosen over
+  `on delete restrict` on the composite FK because restrict would hazard the
+  auth.users→ideas cascade that account deletion and the persist-probe's
+  cleanup rely on.
+- **Posture notes (recorded decisions, not open items):** CSRF — Supabase's
+  SameSite=Lax cookies are the app-wide story; acceptable for the
+  single-founder target and consistent with every other mutating route. Run
+  ids stay internal-only (minted server-side within the same request); the
+  status-scoping above now also covers the bare-id concern. Pre-lifecycle
+  infra failures (ownership read, cap count, sweep, pending insert) are
+  logged server-side by the POST wrapper and return a bare 500. Two live
+  checks remain platform-trust items for the human batch: `maxDuration`
+  being a hard kill (Fluid Compute), and PostgREST naming the in-flight
+  index in its 23505 error (the free "second POST → 409" check proves it —
+  a 500 there instead means the name detection needs a look; either way no
+  spend and no corruption).
+- **Lifecycle primitives live in `run.ts`** (`createPendingRun` — throws
+  `RunInFlightError` on the index, `advanceRunStatus`, `failRun`,
+  `sweepStaleRuns`, `findLiveRun`, `countRecentRuns`); `persistRun`'s optional
+  `runId` finalizes the existing row (update scoped to
+  `(id, idea_id, author_id)`) — its no-`runId` insert path (the
+  persist-probe's) is unchanged and writes only terminal `complete` rows,
+  which the in-flight index (non-terminal predicate) never touches —
+  verified, not assumed.
 - **Verified by `scripts/eval/route-probe.ts`** (`npm run eval:route-probe`,
-  **$0** — handler driven through fakes, no Supabase/Anthropic/network): 400 /
-  401 / 404 / 409 boundaries each leave the engine un-invoked and write
-  nothing; happy path asserts the exact lifecycle order and session-derived
-  authorId; engine failure marks the row failed and leaks nothing; an infra
+  **$0** — handler driven through fakes, no Supabase/Anthropic/network):
+  400 / 401 / 404 / 429 / 409 boundaries each leave the engine un-invoked;
+  the 409 path asserts sweep-before-insert ordering and the live-run 409
+  body (including the finished-in-between edge); happy path asserts the exact
+  lifecycle order and session-derived authorId; engine failure asserts the
+  generic row message with full detail reaching only the log sink; an infra
   failure of the ownership read throws (→ bare 500), never masquerading as
   404. This is the ceiling without live creds — the route's live pass is the
   human batch's final step.
@@ -178,7 +223,9 @@ the smoke needs `ANTHROPIC_API_KEY` (already present). Do them in order:
 1. **Apply migration 008** — **$0** — prerequisite for the **PROBE**, not for the eval.
    In the Supabase SQL editor, paste `supabase/migrations/008_opportunity_discovery.sql`.
    Deps `set_updated_at` + `uuid_generate_v4` exist from migration 001, so it applies
-   cleanly on 001–007.
+   cleanly on 001–007. **008 now also creates the one-in-flight partial unique index**
+   (`evaluation_runs_one_in_flight_per_author`) — it was amended in place because 008
+   has never been applied anywhere; there is deliberately no 009.
 2. **Run the probe** — **$0** — the only thing that verifies persistence:
    ```
    npm run eval:persist-probe
@@ -219,7 +266,10 @@ the smoke needs `ANTHROPIC_API_KEY` (already present). Do them in order:
    Expect `{runId, status: "complete", verdict, searchesPerformed}` after ~1–3
    min and a matching `complete` row in `evaluation_runs` (verdict_json + flat
    projections). Optional free checks while it runs: a second POST → 409
-   `run_in_flight`; a POST with a random uuid → 404; signed-out fetch → 401.
+   `run_in_flight` naming the live run (this is the one-in-flight index firing,
+   not a timing read); a POST with a random uuid → 404; signed-out fetch → 401;
+   a 6th run inside an hour → 429 `rate_limited` (cap tunable via
+   `OPPORTUNITY_ENGINE_MAX_RUNS_PER_HOUR`, default 5).
 
 ## Next (after the batch)
 

@@ -12,18 +12,23 @@
  *   (3) authed but the RLS-scoped idea read returns null (idea absent OR owned
  *       by someone else — indistinguishable by design) → 404, engine never
  *       invoked, no run row created.
- *   (4) an in-flight run for the author → 409 naming the existing run, engine
- *       never invoked, no second pending row (the spend guard).
- *   (5) happy path → 200; the lifecycle is ordered pending → researching →
- *       scoring → complete; and the authorId reaching every write is the
- *       SESSION user id — a decoy authorId/ideaId planted in the request body
- *       must never reach a write (ownership comes from RLS + session, never
- *       the body).
- *   (6) engine failure → the run is marked failed with the error message, the
- *       response is 500 with no internal detail beyond the run id, and
- *       persistRun is never called.
- *   (7) an infra failure of the ownership read itself propagates (the POST
+ *   (4) hourly cap reached → 429, and neither the sweep, the insert, nor the
+ *       engine runs; one-under-the-cap proceeds.
+ *   (5) the pending insert hitting the one-in-flight partial unique index
+ *       (RunInFlightError) → 409 naming the live run; the stale sweep ran
+ *       BEFORE the insert (recovery as an explicit transition), the engine
+ *       never ran, and no decoy authorId from the body reached any call.
+ *       Also covered: the live run finishing between insert-reject and
+ *       lookup → 409 without a runId, never a crash.
+ *   (6) happy path → 200; lifecycle ordered cap → sweep → pending →
+ *       researching → scoring → complete; authorId session-derived everywhere.
+ *   (7) engine failure → the row gets a GENERIC per-stage message ("scoring
+ *       stage failed"), the full detail goes to the server-log sink only, the
+ *       response is 500 with nothing but the run id, persistRun never called.
+ *   (8) an infra failure of the ownership read itself propagates (the POST
  *       wrapper's catch → bare 500) — it never collapses into the 404.
+ *   (9) infra failures of the cap count or the sweep propagate BEFORE the
+ *       pending insert — no dangling row, no engine call, no spend.
  *
  * Usage: npm run eval:route-probe
  */
@@ -32,7 +37,7 @@ import {
   handleRunRequest,
   type RunRouteDeps,
 } from "../../app/api/discovery/runs/route";
-import type { PersistRunInput } from "../../lib/opportunity-engine/run";
+import { RunInFlightError, type PersistRunInput } from "../../lib/opportunity-engine/run";
 import {
   VerdictSchema,
   type Idea,
@@ -45,6 +50,7 @@ const SESSION_USER = "11111111-1111-4111-8111-111111111111"; // the authenticate
 const ATTACKER = "22222222-2222-4222-8222-222222222222"; // decoy planted in request bodies
 const IDEA_ID = "33333333-3333-4333-8333-333333333333";
 const RUN_ID = "44444444-4444-4444-8444-444444444444";
+const LIVE_RUN_ID = "55555555-5555-4555-8555-555555555555";
 const MODEL = "route-probe-fixture";
 
 function fixtureIdeaRow(): IdeaRow {
@@ -115,26 +121,32 @@ function fixtureVerdict(): Verdict {
 /** Every downstream touch the handler makes, in call order. */
 type Recorded = {
   ideaReads: string[];
-  inFlightChecks: { authorId: string; createdAfterIso: string }[];
+  capChecks: { authorId: string; sinceIso: string }[];
+  sweeps: { authorId: string; staleBeforeIso: string }[];
+  liveLookups: string[];
   pendingInserts: { ideaId: string; authorId: string; model: string }[];
   statusAdvances: { runId: string; status: string }[];
   researchCalls: Idea[];
   scoreCalls: Idea[];
   persistCalls: PersistRunInput[];
   failCalls: { runId: string; message: string }[];
+  logs: string[];
   order: string[];
 };
 
 function makeDeps(overrides: Partial<RunRouteDeps> = {}): { deps: RunRouteDeps; calls: Recorded } {
   const calls: Recorded = {
     ideaReads: [],
-    inFlightChecks: [],
+    capChecks: [],
+    sweeps: [],
+    liveLookups: [],
     pendingInserts: [],
     statusAdvances: [],
     researchCalls: [],
     scoreCalls: [],
     persistCalls: [],
     failCalls: [],
+    logs: [],
     order: [],
   };
   const deps: RunRouteDeps = {
@@ -147,15 +159,25 @@ function makeDeps(overrides: Partial<RunRouteDeps> = {}): { deps: RunRouteDeps; 
       calls.ideaReads.push(ideaId);
       return fixtureIdeaRow();
     },
-    async findInFlightRun(authorId, createdAfterIso) {
-      calls.order.push("inFlight");
-      calls.inFlightChecks.push({ authorId, createdAfterIso });
-      return null;
+    async countRecentRuns(authorId, sinceIso) {
+      calls.order.push("cap");
+      calls.capChecks.push({ authorId, sinceIso });
+      return 0;
+    },
+    async sweepStaleRuns(authorId, staleBeforeIso) {
+      calls.order.push("sweep");
+      calls.sweeps.push({ authorId, staleBeforeIso });
+      return 0;
     },
     async createPendingRun(input) {
       calls.order.push("pending");
       calls.pendingInserts.push(input);
       return { id: RUN_ID };
+    },
+    async findLiveRun(authorId) {
+      calls.order.push("liveLookup");
+      calls.liveLookups.push(authorId);
+      return { id: LIVE_RUN_ID };
     },
     async advanceRunStatus(runId, status) {
       calls.order.push(`advance:${status}`);
@@ -180,7 +202,11 @@ function makeDeps(overrides: Partial<RunRouteDeps> = {}): { deps: RunRouteDeps; 
       calls.order.push("fail");
       calls.failCalls.push({ runId, message });
     },
+    logError(message) {
+      calls.logs.push(message);
+    },
     model: MODEL,
+    hourlyCap: 5,
     ...overrides,
   };
   return { deps, calls };
@@ -189,6 +215,7 @@ function makeDeps(overrides: Partial<RunRouteDeps> = {}): { deps: RunRouteDeps; 
 function assertNoSpendAndNoWrites(calls: Recorded, label: string): void {
   strictEqual(calls.researchCalls.length, 0, `${label}: research was invoked`);
   strictEqual(calls.scoreCalls.length, 0, `${label}: score was invoked`);
+  strictEqual(calls.sweeps.length, 0, `${label}: the stale sweep wrote`);
   strictEqual(calls.pendingInserts.length, 0, `${label}: a pending run was inserted`);
   strictEqual(calls.persistCalls.length, 0, `${label}: persistRun was invoked`);
   strictEqual(calls.statusAdvances.length, 0, `${label}: a status advance was written`);
@@ -236,27 +263,90 @@ async function main(): Promise<void> {
     strictEqual(res.status, 404, "unowned/absent idea did not 404");
     deepStrictEqual(await res.json(), { error: "idea_not_found" });
     assertNoSpendAndNoWrites(calls, "unowned-idea");
+    strictEqual(calls.capChecks.length, 0, "unowned-idea: cap was checked");
   }
   process.stdout.write(
     "✓ (3) RLS-scoped read is the ownership boundary — null → 404, engine never invoked\n",
   );
 
-  // ── (4) in-flight run → 409 with the existing run id, engine idle ───────
+  // ── (4) hourly cap reached → 429; no sweep, no insert, no engine ────────
   {
-    const existing = "55555555-5555-4555-8555-555555555555";
     const { deps, calls } = makeDeps({
-      async findInFlightRun() {
-        return { id: existing };
+      async countRecentRuns(authorId, sinceIso) {
+        calls.capChecks.push({ authorId, sinceIso });
+        return 5; // == hourlyCap
       },
     });
     const res = await handleRunRequest({ ideaId: IDEA_ID }, deps);
-    strictEqual(res.status, 409, "in-flight run did not 409");
-    deepStrictEqual(await res.json(), { error: "run_in_flight", runId: existing });
-    assertNoSpendAndNoWrites(calls, "in-flight");
+    strictEqual(res.status, 429, "cap-reached request did not 429");
+    deepStrictEqual(await res.json(), {
+      error: "rate_limited",
+      detail: "at most 5 runs per hour",
+    });
+    assertNoSpendAndNoWrites(calls, "cap-reached");
+    strictEqual(calls.capChecks[0].authorId, SESSION_USER);
   }
-  process.stdout.write("✓ (4) in-flight run → 409, no second run, no spend\n");
+  // Boundary sanity: one under the cap proceeds.
+  {
+    const { deps, calls } = makeDeps({
+      async countRecentRuns() {
+        return 4;
+      },
+    });
+    const res = await handleRunRequest({ ideaId: IDEA_ID }, deps);
+    strictEqual(res.status, 200, "under-cap request did not proceed");
+    strictEqual(calls.pendingInserts.length, 1, "under-cap: pending insert missing");
+  }
+  process.stdout.write(
+    "✓ (4) hourly cap → 429 at the cap, proceeds one under it; no spend either way\n",
+  );
 
-  // ── (5) happy path — lifecycle order + session-derived authorId ─────────
+  // ── (5) one-in-flight index rejects the insert → 409, sweep-before-insert ─
+  {
+    const { deps, calls } = makeDeps();
+    deps.createPendingRun = async (input) => {
+      calls.order.push("pending");
+      calls.pendingInserts.push(input);
+      throw new RunInFlightError();
+    };
+    const res = await handleRunRequest({ ideaId: IDEA_ID, authorId: ATTACKER }, deps);
+    strictEqual(res.status, 409, "in-flight insert rejection did not 409");
+    deepStrictEqual(await res.json(), { error: "run_in_flight", runId: LIVE_RUN_ID });
+    // Recovery is explicit: the sweep must precede the insert attempt.
+    deepStrictEqual(
+      calls.order,
+      ["auth", "readIdea", "cap", "sweep", "pending", "liveLookup"],
+      "409 path order mismatch (sweep must run before the insert)",
+    );
+    strictEqual(calls.sweeps[0].authorId, SESSION_USER);
+    strictEqual(calls.researchCalls.length, 0, "in-flight: research was invoked");
+    strictEqual(calls.scoreCalls.length, 0, "in-flight: score was invoked");
+    strictEqual(calls.persistCalls.length, 0, "in-flight: persistRun was invoked");
+    ok(
+      !JSON.stringify(calls.sweeps).includes(ATTACKER) &&
+        calls.pendingInserts[0].authorId === SESSION_USER,
+      "a body-supplied decoy authorId reached a write",
+    );
+  }
+  // Edge: the live run finished between insert-reject and lookup → 409, no id.
+  {
+    const { deps } = makeDeps({
+      async createPendingRun() {
+        throw new RunInFlightError();
+      },
+      async findLiveRun() {
+        return null;
+      },
+    });
+    const res = await handleRunRequest({ ideaId: IDEA_ID }, deps);
+    strictEqual(res.status, 409, "in-flight edge (no live row) did not 409");
+    deepStrictEqual(await res.json(), { error: "run_in_flight" });
+  }
+  process.stdout.write(
+    "✓ (5) unique-index rejection → 409 naming the live run; sweep precedes insert; engine idle\n",
+  );
+
+  // ── (6) happy path — lifecycle order + session-derived authorId ─────────
   {
     const { deps, calls } = makeDeps();
     // Decoys: a body that tries to smuggle an attacker authorId and a second
@@ -273,13 +363,14 @@ async function main(): Promise<void> {
     strictEqual(body.verdict, "fast-follow-on-execution");
     strictEqual(body.searchesPerformed, 7);
 
-    // Lifecycle order is exactly SPEC step 9's.
+    // Lifecycle order is exactly SPEC step 9's, cap and sweep included.
     deepStrictEqual(
       calls.order,
       [
         "auth",
         "readIdea",
-        "inFlight",
+        "cap",
+        "sweep",
         "pending",
         "advance:researching",
         "research",
@@ -290,29 +381,26 @@ async function main(): Promise<void> {
       "lifecycle order mismatch",
     );
 
-    // The authorId reaching every write is the SESSION user — never the decoy.
-    strictEqual(calls.inFlightChecks[0].authorId, SESSION_USER);
+    // The authorId reaching every call is the SESSION user — never the decoy.
+    strictEqual(calls.capChecks[0].authorId, SESSION_USER);
+    strictEqual(calls.sweeps[0].authorId, SESSION_USER);
     strictEqual(calls.pendingInserts[0].authorId, SESSION_USER);
     strictEqual(calls.pendingInserts[0].ideaId, IDEA_ID);
     strictEqual(calls.persistCalls[0].authorId, SESSION_USER);
     strictEqual(calls.persistCalls[0].ideaId, IDEA_ID);
     strictEqual(calls.persistCalls[0].runId, RUN_ID, "persist did not finalize the pending row");
-    ok(
-      JSON.stringify(calls.pendingInserts).includes(ATTACKER) === false &&
-        JSON.stringify(calls.persistCalls[0].authorId).includes(ATTACKER) === false,
-      "a body-supplied decoy authorId reached a write",
-    );
     strictEqual(calls.failCalls.length, 0, "happy path called failRun");
+    strictEqual(calls.logs.length, 0, "happy path wrote to the error log");
   }
   process.stdout.write(
-    "✓ (5) happy path — pending → researching → scoring → complete; authorId is session-derived, body decoys ignored\n",
+    "✓ (6) happy path — cap → sweep → pending → researching → scoring → complete; decoys ignored\n",
   );
 
-  // ── (6) engine failure → run marked failed, 500, no persist ─────────────
+  // ── (7) engine failure → generic row message, full detail to logs only ──
   {
     const { deps, calls } = makeDeps({
       async score() {
-        throw new Error("scoring stage exploded (fixture)");
+        throw new Error("scoring stage exploded (fixture secret detail)");
       },
     });
     const res = await handleRunRequest({ ideaId: IDEA_ID }, deps);
@@ -321,14 +409,24 @@ async function main(): Promise<void> {
     strictEqual(calls.persistCalls.length, 0, "failed run was persisted as complete");
     strictEqual(calls.failCalls.length, 1, "failRun was not called");
     strictEqual(calls.failCalls[0].runId, RUN_ID);
+    // SCRUBBED: the author-readable row gets the generic per-stage message…
+    strictEqual(calls.failCalls[0].message, "scoring stage failed");
     ok(
-      calls.failCalls[0].message.includes("scoring stage exploded"),
-      "failure message did not reach the run row",
+      !calls.failCalls[0].message.includes("exploded"),
+      "internal failure detail leaked into the row's error column",
+    );
+    // …and the full detail lands in the server-log sink.
+    strictEqual(calls.logs.length, 1, "full detail did not reach the server-log sink");
+    ok(
+      calls.logs[0].includes("scoring stage") && calls.logs[0].includes("exploded"),
+      "server log is missing the stage or the full detail",
     );
   }
-  process.stdout.write("✓ (6) engine failure → row marked failed, 500 carries no internals\n");
+  process.stdout.write(
+    "✓ (7) engine failure → row says 'scoring stage failed'; full detail to server logs only\n",
+  );
 
-  // ── (7) ownership-read INFRA failure throws — never reads as 404 ────────
+  // ── (8) ownership-read INFRA failure throws — never reads as 404 ────────
   // A real query error at the sole ownership boundary must propagate (the
   // POST wrapper turns it into a bare 500), not collapse into idea_not_found.
   {
@@ -345,7 +443,43 @@ async function main(): Promise<void> {
     assertNoSpendAndNoWrites(calls, "ownership-read-failure");
   }
   process.stdout.write(
-    "✓ (7) ownership-read infra failure propagates (→ 500), never masquerades as 404\n",
+    "✓ (8) ownership-read infra failure propagates (→ 500), never masquerades as 404\n",
+  );
+
+  // ── (9) cap/sweep infra failures propagate pre-insert — zero writes/spend ─
+  // Both run before createPendingRun, so a throw must leave no dangling row
+  // and no engine call (the POST wrapper turns it into a logged bare 500).
+  {
+    const { deps, calls } = makeDeps({
+      async countRecentRuns() {
+        throw new Error("count query failed (fixture)");
+      },
+    });
+    await rejects(
+      () => handleRunRequest({ ideaId: IDEA_ID }, deps),
+      /count query failed/,
+      "a cap-count infra failure did not propagate",
+    );
+    assertNoSpendAndNoWrites(calls, "cap-count-failure");
+  }
+  {
+    const { deps, calls } = makeDeps({
+      async sweepStaleRuns() {
+        throw new Error("sweep update failed (fixture)");
+      },
+    });
+    await rejects(
+      () => handleRunRequest({ ideaId: IDEA_ID }, deps),
+      /sweep update failed/,
+      "a sweep infra failure did not propagate",
+    );
+    strictEqual(calls.pendingInserts.length, 0, "sweep-failure: a pending run was inserted");
+    strictEqual(calls.researchCalls.length, 0, "sweep-failure: research was invoked");
+    strictEqual(calls.scoreCalls.length, 0, "sweep-failure: score was invoked");
+    strictEqual(calls.persistCalls.length, 0, "sweep-failure: persistRun was invoked");
+  }
+  process.stdout.write(
+    "✓ (9) cap/sweep infra failures propagate before any insert — no dangling row, no spend\n",
   );
 
   process.stdout.write("\nALL ROUTE-PROBE ASSERTIONS PASSED ($0 — every dependency faked)\n");

@@ -50,17 +50,34 @@ export type PersistRunInput = {
 type EvaluationRunInsert = Database["public"]["Tables"]["evaluation_runs"]["Insert"];
 type EvaluationRunUpdate = Database["public"]["Tables"]["evaluation_runs"]["Update"];
 
-// Non-terminal statuses. A run in one of these states is "in flight" — the
-// route refuses to start another for the same author (spend guard). Rows stuck
-// non-terminal past the route's duration ceiling are treated as stale, so a
-// killed invocation can't wedge the author out of the route forever.
+// Non-terminal statuses. A run in one of these states is "in flight". The
+// partial unique index evaluation_runs_one_in_flight_per_author (migration
+// 008) allows at most one such row per author; the route sweeps stale ones to
+// failed('timeout') before inserting, so a unique violation always means a
+// genuinely live run.
 const IN_FLIGHT_STATUSES = ["pending", "researching", "scoring"] as const;
+
+const IN_FLIGHT_INDEX = "evaluation_runs_one_in_flight_per_author";
+
+/**
+ * The author already has a live (non-terminal, post-sweep) run — the pending
+ * insert hit the partial unique index. The route maps this to 409.
+ */
+export class RunInFlightError extends Error {
+  readonly code = "RUN_IN_FLIGHT";
+  constructor() {
+    super("an evaluation run is already in flight for this author");
+    this.name = "RunInFlightError";
+  }
+}
 
 /**
  * Insert a `pending` evaluation_runs row via the service-role client — the
- * start of the route-owned lifecycle (SPEC step 9). The composite FK
- * (idea_id, author_id) → ideas(id, author_id) rejects a mismatched pair at
- * this first write, before any API spend happens.
+ * start of the route-owned lifecycle (SPEC step 9). Two constraints fire
+ * here, before any API spend: the composite FK (idea_id, author_id) →
+ * ideas(id, author_id) rejects a mismatched pair, and the one-in-flight
+ * partial unique index rejects a second live run for the author (surfaced as
+ * RunInFlightError so the route can 409 instead of 500).
  */
 export async function createPendingRun(input: {
   ideaId: string;
@@ -78,31 +95,123 @@ export async function createPendingRun(input: {
   const { data, error } = (await (supabase.from("evaluation_runs") as any)
     .insert(row)
     .select("id")
-    .single()) as { data: { id: string } | null; error: { message: string } | null };
-  if (error || !data) {
-    throw new Error(
-      `createPendingRun: failed to insert pending run: ${error?.message ?? "no row returned"}`,
-    );
+    .single()) as {
+    data: { id: string } | null;
+    error: { code?: string; message: string; details?: string } | null;
+  };
+  if (error) {
+    // 23505 = unique_violation. Only the one-in-flight index can realistically
+    // fire (the PK is a fresh uuid); require its name so an unrelated future
+    // unique constraint doesn't silently masquerade as "in flight".
+    if (
+      error.code === "23505" &&
+      `${error.message} ${error.details ?? ""}`.includes(IN_FLIGHT_INDEX)
+    ) {
+      throw new RunInFlightError();
+    }
+    throw new Error(`createPendingRun: failed to insert pending run: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error("createPendingRun: failed to insert pending run: no row returned");
   }
   return { id: data.id };
 }
 
-/** Advance a run's non-terminal status (researching → scoring). */
+/**
+ * Recovery as an explicit state transition (see the index comment in
+ * migration 008): mark the author's non-terminal runs older than
+ * `staleBeforeIso` as failed('timeout'). Called by the route immediately
+ * before the pending insert, so a stuck row from a killed invocation can
+ * never wedge its author, and a subsequent unique violation is proof of a
+ * genuinely live run. Returns how many rows were swept.
+ */
+export async function sweepStaleRuns(authorId: string, staleBeforeIso: string): Promise<number> {
+  const supabase = createServiceClient();
+  const patch: EvaluationRunUpdate = {
+    status: "failed",
+    error: "timeout: run exceeded the route duration ceiling and was swept",
+    completed_at: new Date().toISOString(),
+  };
+  const { data, error } = (await (supabase.from("evaluation_runs") as any)
+    .update(patch)
+    .eq("author_id", authorId)
+    .in("status", [...IN_FLIGHT_STATUSES])
+    .lt("created_at", staleBeforeIso)
+    .select("id")) as { data: { id: string }[] | null; error: { message: string } | null };
+  if (error) {
+    throw new Error(`sweepStaleRuns: ${error.message}`);
+  }
+  return data?.length ?? 0;
+}
+
+/**
+ * The author's live non-terminal run, if any. Post-sweep the one-in-flight
+ * index guarantees at most one. Used only to name the blocking run in the
+ * route's 409 body.
+ */
+export async function findLiveRun(authorId: string): Promise<{ id: string } | null> {
+  const supabase = createServiceClient();
+  const { data, error } = (await (supabase.from("evaluation_runs") as any)
+    .select("id")
+    .eq("author_id", authorId)
+    .in("status", [...IN_FLIGHT_STATUSES])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()) as { data: { id: string } | null; error: { message: string } | null };
+  if (error) {
+    throw new Error(`findLiveRun: ${error.message}`);
+  }
+  return data;
+}
+
+/**
+ * Runs created by the author since `sinceIso`, any status — each one
+ * represented potential spend. Backs the route's per-author hourly cap.
+ */
+export async function countRecentRuns(authorId: string, sinceIso: string): Promise<number> {
+  const supabase = createServiceClient();
+  const { count, error } = (await (supabase.from("evaluation_runs") as any)
+    .select("id", { count: "exact", head: true })
+    .eq("author_id", authorId)
+    .gte("created_at", sinceIso)) as { count: number | null; error: { message: string } | null };
+  if (error) {
+    throw new Error(`countRecentRuns: ${error.message}`);
+  }
+  return count ?? 0;
+}
+
+/**
+ * Advance a run's non-terminal status (researching → scoring). Scoped to
+ * in-flight rows so terminal states are immutable: a zombie invocation whose
+ * row was swept to failed can never resurrect it — the update matches zero
+ * rows and this throws, converging the zombie to a scrubbed 500.
+ */
 export async function advanceRunStatus(
   runId: string,
   status: "researching" | "scoring",
 ): Promise<void> {
   const supabase = createServiceClient();
   const patch: EvaluationRunUpdate = { status };
-  const { error } = (await (supabase.from("evaluation_runs") as any)
+  const { data, error } = (await (supabase.from("evaluation_runs") as any)
     .update(patch)
-    .eq("id", runId)) as { error: { message: string } | null };
+    .eq("id", runId)
+    .in("status", [...IN_FLIGHT_STATUSES])
+    .select("id")) as { data: { id: string }[] | null; error: { message: string } | null };
   if (error) {
     throw new Error(`advanceRunStatus(${status}): ${error.message}`);
   }
+  if (!data?.length) {
+    throw new Error(
+      `advanceRunStatus(${status}): run ${runId} is no longer live (swept or finished)`,
+    );
+  }
 }
 
-/** Mark a run terminally failed with its error message (author-readable via RLS). */
+/**
+ * Mark a run terminally failed with its (already-scrubbed) message. Scoped to
+ * in-flight rows; a run that is already terminal (swept, or completed) is left
+ * untouched — best-effort cleanup, so zero matches is a no-op, not an error.
+ */
 export async function failRun(runId: string, message: string): Promise<void> {
   const supabase = createServiceClient();
   const patch: EvaluationRunUpdate = {
@@ -112,35 +221,11 @@ export async function failRun(runId: string, message: string): Promise<void> {
   };
   const { error } = (await (supabase.from("evaluation_runs") as any)
     .update(patch)
-    .eq("id", runId)) as { error: { message: string } | null };
+    .eq("id", runId)
+    .in("status", [...IN_FLIGHT_STATUSES])) as { error: { message: string } | null };
   if (error) {
     throw new Error(`failRun: ${error.message}`);
   }
-}
-
-/**
- * Spend guard (route-side): the author's most recent non-terminal run created
- * within the freshness window, or null. Non-terminal rows older than the
- * window are stale leftovers of a killed invocation and are ignored — they
- * never block a new run.
- */
-export async function findInFlightRun(
-  authorId: string,
-  createdAfterIso: string,
-): Promise<{ id: string } | null> {
-  const supabase = createServiceClient();
-  const { data, error } = (await (supabase.from("evaluation_runs") as any)
-    .select("id")
-    .eq("author_id", authorId)
-    .in("status", [...IN_FLIGHT_STATUSES])
-    .gte("created_at", createdAfterIso)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()) as { data: { id: string } | null; error: { message: string } | null };
-  if (error) {
-    throw new Error(`findInFlightRun: ${error.message}`);
-  }
-  return data;
 }
 
 /**
@@ -171,6 +256,9 @@ export async function persistRun(input: PersistRunInput): Promise<{ id: string }
     verdict_json: verdict as unknown as EvaluationRunInsert["verdict_json"],
     brief_md: verdict.brief_summary,
     kill_condition: verdict.kill_condition,
+    // A completed run has no error by construction; explicit null keeps the
+    // terminal state self-consistent even if a future path sets error earlier.
+    error: null,
     completed_at: new Date().toISOString(),
   };
 
@@ -180,16 +268,23 @@ export async function persistRun(input: PersistRunInput): Promise<{ id: string }
   // stay fully typed as Insert/Update shapes — only the builder call is cast.
   if (runId) {
     const patch: EvaluationRunUpdate = terminal;
+    // Scoped to (id, idea_id, author_id) AND in-flight status: terminal
+    // states are immutable, so a zombie invocation can never finalize a row
+    // the sweep already failed — zero matches throws and the verdict is
+    // discarded (the scrubbed-500 path), which is the correct outcome.
     const { data, error } = (await (supabase.from("evaluation_runs") as any)
       .update(patch)
       .eq("id", runId)
       .eq("idea_id", ideaId)
       .eq("author_id", authorId)
+      .in("status", [...IN_FLIGHT_STATUSES])
       .select("id")
       .single()) as { data: { id: string } | null; error: { message: string } | null };
     if (error || !data) {
       throw new Error(
-        `persistRun: failed to finalize run ${runId}: ${error?.message ?? "no matching row"}`,
+        `persistRun: failed to finalize run ${runId}: ${
+          error?.message ?? "no matching live row (swept or already terminal)"
+        }`,
       );
     }
     return { id: data.id };

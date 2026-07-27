@@ -6,8 +6,10 @@
 -- from opportunities — see docs/aos/opportunity-engine/SPEC.md §1.
 --
 -- WRITE PATHS (the RLS design depends on these being explicit):
---   • ideas — INSERT/UPDATE/DELETE by the signed-in author through an authed
---     Server Action; governed by the owner-scoped RLS policy below.
+--   • ideas — INSERT/UPDATE by the signed-in author through an authed Server
+--     Action; governed by the owner-scoped RLS policies below. NO client
+--     DELETE (see the policy comment: deletion would cascade away the run
+--     rows the spend guards count).
 --     `promoted_opportunity_id` is written only by the Phase 5+ editorial
 --     promotion surface via the service-role client. RLS cannot scope a
 --     single column, so the guard_idea_promotion trigger below rejects any
@@ -50,12 +52,24 @@ create index ideas_promoted_opportunity_idx on public.ideas (promoted_opportunit
 
 alter table public.ideas enable row level security;
 
--- Owner-scoped CRUD. `for all` + both clauses covers every verb:
--- SELECT/DELETE via USING, INSERT via WITH CHECK, UPDATE via both — so an
--- author can neither touch another author's row nor re-attribute a row
--- (their own or anyone's) to a different author_id.
-create policy "Authors manage their own ideas"
-  on public.ideas for all
+-- Owner-scoped SELECT/INSERT/UPDATE — deliberately NO client DELETE policy.
+-- Deleting an idea cascades to its evaluation_runs, which would let an owner
+-- erase the very rows the route's spend guards count (the one-in-flight
+-- unique index below and the hourly cap) — a self-service bypass. Deletion is
+-- therefore a service-role act (account deletion cascades from auth.users;
+-- an editorial soft-delete surface, if ever wanted, is Phase 5+). The split
+-- policies still prevent cross-author touches and author_id re-attribution
+-- (UPDATE carries both USING and WITH CHECK).
+create policy "Authors read their own ideas"
+  on public.ideas for select
+  to authenticated
+  using (auth.uid() = author_id);
+create policy "Authors create their own ideas"
+  on public.ideas for insert
+  to authenticated
+  with check (auth.uid() = author_id);
+create policy "Authors update their own ideas"
+  on public.ideas for update
   to authenticated
   using (auth.uid() = author_id)
   with check (auth.uid() = author_id);
@@ -134,6 +148,19 @@ create table public.evaluation_runs (
 create index evaluation_runs_idea_idx    on public.evaluation_runs (idea_id, created_at desc);
 create index evaluation_runs_author_idx  on public.evaluation_runs (author_id, created_at desc);
 create index evaluation_runs_verdict_idx on public.evaluation_runs (verdict);
+
+-- Spend guard, structural half: at most ONE non-terminal ("in flight") run per
+-- author, enforced by the database instead of a check-then-insert read (which
+-- races). A partial-index predicate cannot contain now(), so staleness is
+-- deliberately NOT part of the index — a crashed invocation's stuck
+-- non-terminal row would otherwise wedge its author forever. Recovery is an
+-- EXPLICIT state transition owned by the on-demand route: before inserting a
+-- pending row it sweeps the author's non-terminal rows older than its duration
+-- ceiling to failed('timeout'), so a unique violation on this index always
+-- means a genuinely live run (→ 409), never a wedge.
+create unique index evaluation_runs_one_in_flight_per_author
+  on public.evaluation_runs (author_id)
+  where status in ('pending','researching','scoring');
 
 alter table public.evaluation_runs enable row level security;
 

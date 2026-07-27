@@ -12,10 +12,17 @@
 //     session, never the request body. The composite FK
 //     (idea_id, author_id) → ideas(id, author_id) stays behind it as
 //     defense-in-depth: a bug here still cannot mint a cross-author row.
-//   • Each run is real Anthropic spend (~$2). The spend guard is one
-//     in-flight run per author: a non-terminal run created inside the
-//     freshness window 409s new requests. Non-terminal rows older than the
-//     window are stale (a killed invocation) and never block.
+//   • Each run is real Anthropic spend (~$2). Two spend guards:
+//     (1) One in-flight run per author, enforced STRUCTURALLY by the partial
+//         unique index evaluation_runs_one_in_flight_per_author (008) — not
+//         by a check-then-insert read, which races. The index predicate can't
+//         express staleness, so recovery is an explicit transition: the route
+//         sweeps the author's stale non-terminal rows to failed('timeout')
+//         before inserting; a unique violation on the insert therefore always
+//         means a genuinely live run → 409.
+//     (2) A per-author hourly cap (count query → 429), default 5, tunable via
+//         OPPORTUNITY_ENGINE_MAX_RUNS_PER_HOUR. Soft guard — the count read
+//         races in principle, but the index bounds concurrent damage to one.
 
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
@@ -24,10 +31,13 @@ import { researchIdea } from "@/lib/opportunity-engine/research";
 import { scoreIdea } from "@/lib/opportunity-engine/score";
 import {
   advanceRunStatus,
+  countRecentRuns,
   createPendingRun,
   failRun,
-  findInFlightRun,
+  findLiveRun,
   persistRun,
+  RunInFlightError,
+  sweepStaleRuns,
   type PersistRunInput,
 } from "@/lib/opportunity-engine/run";
 import {
@@ -44,9 +54,14 @@ export const runtime = "nodejs";
 // the invocation mid-run, and the stale window below un-wedges the author.
 export const maxDuration = 300;
 
-// Non-terminal runs younger than this block new runs for the author (409);
-// older ones are stale leftovers and are ignored. 2× the route ceiling.
-export const IN_FLIGHT_WINDOW_MS = 10 * 60 * 1000;
+// Non-terminal runs older than this are stale leftovers of a killed
+// invocation and get swept to failed('timeout') before a new insert. 2× the
+// route ceiling.
+export const STALE_AFTER_MS = 10 * 60 * 1000;
+
+// Rolling window for the per-author run cap.
+export const HOURLY_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_RUNS_PER_HOUR = 5;
 
 const BodySchema = z.object({ ideaId: z.uuid() });
 
@@ -62,14 +77,24 @@ export type RunRouteDeps = {
    * and an infra error must surface as 500, never read as "not found".
    */
   readOwnIdea(ideaId: string): Promise<IdeaRow | null>;
-  findInFlightRun(authorId: string, createdAfterIso: string): Promise<{ id: string } | null>;
+  /** Runs created by the author since `sinceIso`, any status (hourly cap). */
+  countRecentRuns(authorId: string, sinceIso: string): Promise<number>;
+  /** Explicit recovery: stale non-terminal rows → failed('timeout'). */
+  sweepStaleRuns(authorId: string, staleBeforeIso: string): Promise<number>;
+  /** Throws RunInFlightError when the one-in-flight index rejects the insert. */
   createPendingRun(input: { ideaId: string; authorId: string; model: string }): Promise<{ id: string }>;
+  /** Names the blocking run for the 409 body; at most one exists post-sweep. */
+  findLiveRun(authorId: string): Promise<{ id: string } | null>;
   advanceRunStatus(runId: string, status: "researching" | "scoring"): Promise<void>;
   research(idea: Idea): Promise<ResearchResult>;
   score(idea: Idea, research: ResearchResult): Promise<Verdict>;
   persistRun(input: PersistRunInput): Promise<{ id: string }>;
   failRun(runId: string, message: string): Promise<void>;
+  /** Full failure detail goes here (server logs), never to the row or wire. */
+  logError(message: string): void;
   model: string;
+  /** Per-author runs-per-hour ceiling (env-tunable in liveDeps). */
+  hourlyCap: number;
 };
 
 function json(status: number, body: Record<string, unknown>): Response {
@@ -94,20 +119,46 @@ export async function handleRunRequest(rawBody: unknown, deps: RunRouteDeps): Pr
     return json(404, { error: "idea_not_found" });
   }
 
-  const cutoff = new Date(Date.now() - IN_FLIGHT_WINDOW_MS).toISOString();
-  const inFlight = await deps.findInFlightRun(userId, cutoff);
-  if (inFlight) {
-    return json(409, { error: "run_in_flight", runId: inFlight.id });
+  // Soft spend guard: per-author hourly cap. Counts every run created in the
+  // window regardless of status — each one represented potential spend.
+  const since = new Date(Date.now() - HOURLY_WINDOW_MS).toISOString();
+  const recent = await deps.countRecentRuns(userId, since);
+  if (recent >= deps.hourlyCap) {
+    return json(429, {
+      error: "rate_limited",
+      detail: `at most ${deps.hourlyCap} runs per hour`,
+    });
   }
 
-  // First DB write — the composite FK re-checks the (idea, author) pair here,
-  // before any Anthropic spend.
-  const { id: runId } = await deps.createPendingRun({
-    ideaId: idea.id,
-    authorId: userId,
-    model: deps.model,
-  });
+  // Recovery as an explicit transition (see 008's index comment): sweep the
+  // author's stale non-terminal rows to failed('timeout') so the unique
+  // violation below can only mean a genuinely live run.
+  const staleBefore = new Date(Date.now() - STALE_AFTER_MS).toISOString();
+  await deps.sweepStaleRuns(userId, staleBefore);
 
+  // First DB write — before any Anthropic spend. Two constraints check it:
+  // the composite FK re-checks the (idea, author) pair, and the one-in-flight
+  // partial unique index rejects a second live run (the structural guard —
+  // no check-then-insert race).
+  let runId: string;
+  try {
+    ({ id: runId } = await deps.createPendingRun({
+      ideaId: idea.id,
+      authorId: userId,
+      model: deps.model,
+    }));
+  } catch (e) {
+    if (e instanceof RunInFlightError) {
+      const live = await deps.findLiveRun(userId);
+      return json(409, { error: "run_in_flight", ...(live ? { runId: live.id } : {}) });
+    }
+    throw e;
+  }
+
+  // From here every failure is recorded on the row — but SCRUBBED: the
+  // author-readable `error` column gets a generic per-stage message; the full
+  // detail goes to server logs only.
+  let stage: "validation" | "research" | "scoring" | "persistence" = "validation";
   try {
     const ideaInput: Idea = IdeaSchema.parse({
       id: idea.id,
@@ -118,11 +169,15 @@ export async function handleRunRequest(rawBody: unknown, deps: RunRouteDeps): Pr
       links: idea.links ?? [],
     });
 
+    stage = "research";
     await deps.advanceRunStatus(runId, "researching");
     const research = await deps.research(ideaInput);
+
+    stage = "scoring";
     await deps.advanceRunStatus(runId, "scoring");
     const verdict = await deps.score(ideaInput, research);
 
+    stage = "persistence";
     await deps.persistRun({
       runId,
       ideaId: idea.id,
@@ -138,14 +193,18 @@ export async function handleRunRequest(rawBody: unknown, deps: RunRouteDeps): Pr
       searchesPerformed: verdict.searches_performed,
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
+    deps.logError(`[discovery/runs] run ${runId} failed at ${stage} stage: ${detail}`);
     try {
-      await deps.failRun(runId, message);
-    } catch {
-      // Row stays non-terminal; the stale window unblocks the author.
+      await deps.failRun(runId, `${stage} stage failed`);
+    } catch (failErr) {
+      // Row stays non-terminal; the sweep unblocks the author next request.
+      deps.logError(
+        `[discovery/runs] run ${runId}: failRun also failed: ${
+          failErr instanceof Error ? failErr.message : String(failErr)
+        }`,
+      );
     }
-    // The message lands in the row's `error` column (author-readable via RLS),
-    // not in the response — no internal detail over the wire.
     return json(500, { error: "run_failed", runId });
   }
 }
@@ -169,15 +228,24 @@ function liveDeps(): RunRouteDeps {
       }
       return (data as IdeaRow | null) ?? null;
     },
-    findInFlightRun,
+    countRecentRuns,
+    sweepStaleRuns,
     createPendingRun,
+    findLiveRun,
     advanceRunStatus,
     research: researchIdea,
     score: scoreIdea,
     persistRun,
     failRun,
+    logError: (message) => console.error(message),
     model: getModel(),
+    hourlyCap: readHourlyCap(),
   };
+}
+
+function readHourlyCap(): number {
+  const raw = Number.parseInt(process.env.OPPORTUNITY_ENGINE_MAX_RUNS_PER_HOUR ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RUNS_PER_HOUR;
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -189,9 +257,15 @@ export async function POST(request: Request): Promise<Response> {
   }
   try {
     return await handleRunRequest(body, liveDeps());
-  } catch {
-    // Pre-lifecycle failures (e.g. the pending insert itself) — nothing to
-    // mark failed yet, and nothing internal to leak.
+  } catch (e) {
+    // Pre-lifecycle failures (ownership read, cap count, sweep, the pending
+    // insert itself) — nothing to mark failed yet and nothing internal to
+    // leak, but the operator still needs eyes on DB-layer errors.
+    console.error(
+      `[discovery/runs] pre-lifecycle failure: ${
+        e instanceof Error ? (e.stack ?? e.message) : String(e)
+      }`,
+    );
     return json(500, { error: "internal" });
   }
 }

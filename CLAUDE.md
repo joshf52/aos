@@ -393,8 +393,8 @@ When designing screens:
 Repo-root `.npmrc` pins `min-release-age=7` (refuse packages published <7 days ago) and `save-exact=true`, mirroring the founder's global `~/.npmrc`.
 
 Enforcement, verified empirically (July 2026):
-- **npm 11.13 / Node 24 (local):** `min-release-age` is honored — npm translates it into a rolling `before` timestamp at install time.
-- **npm 10.9 / Node ≤22 (Vercel's default build image):** `min-release-age` is **silently ignored** — no warning, no protection. So on Vercel the pin is currently decoration; real CI enforcement requires the project to run Node 24+ (engines field or dashboard setting) — an open decision, see Known Debt.
+- **Local (npm 11.13 / Node 24):** `min-release-age` is honored — npm translates it into a rolling `before` timestamp at install time.
+- **Vercel / CI: ENFORCED.** `package.json` pins `engines.node: "24.x"`; Vercel selects its build image from that field, and the PR carrying the pin built green on it — so CI installs run npm 11, which honors `min-release-age`. (Without the pin, Vercel's default Node ≤22 image runs npm 10, which **silently ignores** the key — no warning; that was verified empirically before pinning. If the engines pin is ever removed or loosened below 24, CI protection silently reverts to decoration.)
 - `save-exact` matters only when a human adds a dependency (it writes exact versions to package.json); it's a no-op for lockfile installs either way.
 
 ## Known Debt (ranked)
@@ -408,7 +408,7 @@ Visual backlog — from the July 2026 full-route audit. Every remaining screen r
 
 Non-visual:
 - **Step-9 route runtime verification** pending the human batch (`docs/aos/opportunity-engine/HANDOFF.md`: apply 008 → persist-probe → Sonnet smoke → live route pass).
-- **Vercel Node version:** decide whether to pin Node 24+ so `min-release-age` is enforced in CI/Vercel builds (see Supply-chain posture).
+- ~~Vercel Node version~~ — resolved: `engines.node: "24.x"` pinned; `min-release-age` now enforces in CI (see Supply-chain posture).
 - **Honesty-gate structural-enforcement question** (noted, not refactored): the gate's load-bearing layer is Zod-at-parse-time (`lib/opportunity-engine/schema.ts`); the API wire schema is stripped of min-constraints by the SDK, and the DB checks only the verdict enum. Open question whether more of the gate belongs in the DB/API layers.
 - **Opportunity detail CTA doesn't branch on `build_mode`** — `app/(app)/opportunity/[slug]/page.tsx` hardcodes "Evaluate this opportunity"; the onboarding spec calls for a non-builder variant. Content/logic drift, not styling — do not fix on a visual branch.
 

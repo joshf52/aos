@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "eval": "tsx scripts/eval/run.ts",
-    "eval:research": "tsx scripts/eval/research-probe.ts"
+    "eval:research": "tsx scripts/eval/research-probe.ts",
+    "e2e:ai-build": "tsx --require ./scripts/ai-build-e2e/preload.cjs scripts/ai-build-e2e/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.107.0",

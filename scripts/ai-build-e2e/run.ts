@@ -16,6 +16,10 @@
  *       a key in a dedicated Claude Console workspace with a spend limit
  *   AI_BUILD_KIT_SUPABASE_URL, AI_BUILD_KIT_SUPABASE_ANON_KEY, AI_BUILD_KIT_SUPABASE_SECRET_KEY
  *       the kit Supabase project with starter-kit/supabase/schema.sql applied
+ *   E2E_TEST_SUPABASE_REFS, E2E_TEST_VERCEL_TEAM_ID
+ *       a positive allowlist, stated separately: the project refs of the two
+ *       TEST Supabase projects (comma-separated) and the TEST Vercel team id.
+ *       Both connections and the team must match, or nothing is called.
  *
  * Expected spend: three Vercel builds and two Claude requests (≤ $0.024 each
  * by the kit's caps). The signed-in UI path (hold-to-approve, status page) is
@@ -31,6 +35,7 @@ const REQUIRED = [
   "E2E_SUPABASE_URL", "E2E_SUPABASE_ANON_KEY", "E2E_SUPABASE_SECRET_KEY",
   "AI_BUILD_VERCEL_TOKEN", "AI_BUILD_VERCEL_TEAM_ID", "AI_BUILD_ANTHROPIC_KEY",
   "AI_BUILD_KIT_SUPABASE_URL", "AI_BUILD_KIT_SUPABASE_ANON_KEY", "AI_BUILD_KIT_SUPABASE_SECRET_KEY",
+  "E2E_TEST_SUPABASE_REFS", "E2E_TEST_VERCEL_TEAM_ID",
 ];
 
 const args = process.argv.slice(2);
@@ -74,11 +79,17 @@ async function main() {
     console.error(`Missing: ${missing.join(", ")}. Nothing was called.`);
     process.exit(2);
   }
+  const allowed = process.env.E2E_TEST_SUPABASE_REFS!.split(",").map((r) => r.trim()).filter(Boolean);
   for (const name of ["E2E_SUPABASE_URL", "AI_BUILD_KIT_SUPABASE_URL"]) {
-    if (!testProjectRef(name)) {
-      console.error(`${name} must be https://<ref>.supabase.co of a test project, not the production AOS project.`);
+    const ref = testProjectRef(name);
+    if (!ref || !allowed.includes(ref)) {
+      console.error(`${name} must be https://<ref>.supabase.co of a test project listed in E2E_TEST_SUPABASE_REFS (never production).`);
       process.exit(2);
     }
+  }
+  if (process.env.AI_BUILD_VERCEL_TEAM_ID !== process.env.E2E_TEST_VERCEL_TEAM_ID) {
+    console.error("AI_BUILD_VERCEL_TEAM_ID must equal E2E_TEST_VERCEL_TEAM_ID (the test team).");
+    process.exit(2);
   }
   if (!flag("--i-approve-spend")) {
     console.error("This test creates resources and spends money. Re-run with --i-approve-spend once approved.");
@@ -186,17 +197,23 @@ async function main() {
       }
     }
     console.log(`      ${label}: Vercel states seen ${seen.join(" → ")}`);
-    if (row.project_name && !report.resources.project) {
-      report.resources.project = row.project_name;
-      const name = row.project_name;
-      cleanups.push({ label: "delete the test Vercel project", run: async () => { await vercel(scope, `/v9/projects/${encodeURIComponent(name)}`, { method: "DELETE", retry: "none" }); } });
-    }
     return row;
+  }
+  // Called right after each start, before any waiting, so an exception later
+  // can't leave the project behind unregistered.
+  async function registerProject(buildId: string) {
+    if (report.resources.project) return;
+    const r = (await db.from("ai_builds").select("project_name").eq("id", buildId).single()).data;
+    if (!r?.project_name) return;
+    report.resources.project = r.project_name;
+    const name = r.project_name;
+    cleanups.push({ label: "delete the test Vercel project", run: async () => { await vercel(scope, `/v9/projects/${encodeURIComponent(name)}`, { method: "DELETE", retry: "none" }); } });
   }
 
   // ---------------- build 1: the full path ----------------
   const t1 = Date.now();
   const out1 = await executeBuild(inputs, store);
+  await registerProject(out1.buildId);
   record("build 1: an approved build starts and is recorded 'building' (not live)", out1.status === "building", JSON.stringify(out1));
   const sel = await u.from("ai_builds").select("id, status").eq("id", out1.buildId);
   record("security: the user can read their own build row", sel.data?.length === 1, sel.error?.code ?? "");

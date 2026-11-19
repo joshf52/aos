@@ -70,11 +70,19 @@ type CallOptions = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * A provider code safe to log: letters and underscores only (Vercel's codes
+ * look like "not_found", "BUILD_FAILED"). Anything with digits or other
+ * characters could be an id or a token, so it is dropped.
+ */
+export function safeCode(code: unknown): string | undefined {
+  return typeof code === "string" && /^[A-Za-z_]{1,40}$/.test(code) ? code : undefined;
+}
+
 async function errorCode(res: Response): Promise<string | undefined> {
   try {
     const j = (await res.json()) as { error?: { code?: unknown } };
-    // Codes only, and only code-shaped ones: nothing a response could smuggle into logs.
-    return typeof j.error?.code === "string" && /^[A-Za-z0-9_.-]{1,60}$/.test(j.error.code) ? j.error.code : undefined;
+    return safeCode(j.error?.code);
   } catch {
     return undefined;
   }
@@ -170,10 +178,31 @@ export async function upsertEnv(scope: VercelScope, projectId: string, vars: Env
   );
   const failed = res.failed ?? [];
   if (failed.length > 0) {
-    // Key names and codes only — never values.
-    const which = failed.map((f) => `${f.error?.envVarKey ?? f.error?.key ?? "?"}:${f.error?.code ?? "?"}`).join(", ");
+    // Only key names we sent (never whatever the response put there) and safe codes.
+    const sent = new Set(vars.map((v) => v.key));
+    const which = failed
+      .map((f) => {
+        const k = f.error?.envVarKey ?? f.error?.key;
+        return `${typeof k === "string" && sent.has(k) ? k : "?"}:${safeCode(f.error?.code) ?? "?"}`;
+      })
+      .join(", ");
     throw new Error(`Vercel rejected ${failed.length} environment variable(s): ${which}`);
   }
+}
+
+/**
+ * The generated app's /api/health reports VERCEL_DEPLOYMENT_ID, a system env
+ * var Vercel only exposes when the project allows it. Turn that on (and check
+ * it took) before deploying, so a reused project can't silently fail
+ * verification later.
+ */
+export async function ensureSystemEnvs(scope: VercelScope, projectId: string, deadline?: number): Promise<void> {
+  const p = await vercel<{ autoExposeSystemEnvs?: boolean }>(scope, `/v9/projects/${encodeURIComponent(projectId)}`, {
+    method: "PATCH",
+    json: { autoExposeSystemEnvs: true },
+    deadline,
+  });
+  if (p.autoExposeSystemEnvs !== true) throw new Error("Vercel did not enable system environment variables on the project.");
 }
 
 // ---- deployments --------------------------------------------------------------

@@ -19,7 +19,7 @@ import { compile } from "./compile";
 import { StartError, startDeploy, type DeployOptions, type StartedDeploy } from "./deploy";
 import { MAX_BUILDS_PER_COMMITMENT_PER_DAY } from "./limits";
 import { reconcileBuild } from "./reconcile";
-import { BuildInsertRefused, supabaseBuildStore, type BuildStore } from "./store";
+import { BuildInsertRefused, supabaseBuildStore, type BuildRecord, type BuildStore } from "./store";
 import { cancelDeployment, vercelScope, type CancelResult } from "./vercel";
 
 export type LoadedInputs = CompileInputs & {
@@ -221,28 +221,34 @@ export async function executeBuild(
   if (!saved) {
     // The write may have landed with its answer lost, or a status check may
     // have adopted this very deployment first. Either way it is tracked.
-    let now = await store.get(row.id).catch(() => undefined);
-    if (now === undefined) {
-      // Can't read the row: can't tell whether this deployment is tracked.
-      // Its build-id tag lets reconcile adopt it later (or the cron cancel it
-      // once the row is failed), so don't cancel something that may be live.
-      console.error(JSON.stringify({ event: "ai_build_untracked_deployment", build: row.id, deployment: started.deploymentId, cancel: "deferred" }));
+    // Every uncertain outcome defers: the deployment's build-id tag lets
+    // reconcile adopt it while the row is building (or the cron cancel it
+    // once the row is failed). Only a row that clearly can't be tracking this
+    // deployment leads to a cancel here.
+    const deferred = (why: string): BuildOutcome => {
+      console.error(JSON.stringify({ event: "ai_build_untracked_deployment", build: row.id, deployment: started.deploymentId, cancel: "deferred", why }));
       return { buildId: row.id, status: "building", error: null };
-    }
+    };
+    const tracked = (r: BuildRecord): BuildOutcome =>
+      r.status === "failed" ? { buildId: row.id, status: "failed", error: START_FAILED } : { buildId: row.id, status: "building", error: null };
+
+    let now = await store.get(row.id).catch(() => undefined);
+    if (now === undefined) return deferred("row unreadable");
+    if (now?.deployment_id === started.deploymentId) return tracked(now);
     if (now?.status === "building" && now.deployment_id === null) {
-      // Readable and still unrecorded: one more try at recording it.
-      now = await store
+      // Readable and still unrecorded: one more try, then look again.
+      await store
         .update(row.id, { deployment_id: started.deploymentId, project_name: started.projectName }, { status: "building", deploymentId: null })
-        .catch(() => now);
+        .catch(() => null);
+      now = await store.get(row.id).catch(() => undefined);
+      if (now === undefined) return deferred("row unreadable after retry");
+      if (now?.deployment_id === started.deploymentId) return tracked(now);
+      if (now?.status === "building" && now.deployment_id === null) return deferred("id still unrecorded");
     }
-    if (now?.deployment_id === started.deploymentId) {
-      const failedNow = now.status === "failed";
-      return { buildId: row.id, status: failedNow ? "failed" : "building", error: failedNow ? START_FAILED : null };
-    }
-    // The row is gone, finished, or tracks something else: this deployment is ours alone to stop.
+    // The row is gone, finished, or tracks a different deployment: nothing
+    // tracks this one, and nothing will adopt it. Stop it.
     const cancel = await deps.cancel(started.deploymentId).catch(() => "failed" as const);
     console.error(JSON.stringify({ event: "ai_build_untracked_deployment", build: row.id, deployment: started.deploymentId, cancel }));
-    await store.update(row.id, { status: "failed", error: START_FAILED }, "building").catch(() => {});
     return { buildId: row.id, status: "failed", error: START_FAILED };
   }
   return { buildId: row.id, status: "building", error: null };

@@ -19,6 +19,7 @@ import {
   findDeploymentForBuild,
   getDeployment,
   IN_PROGRESS,
+  safeCode,
   vercelScope,
   VercelError,
   type Deployment,
@@ -27,23 +28,25 @@ import {
 
 const age = (iso: string, now: number) => now - Date.parse(iso);
 
-/** Assigned production alias of a READY deployment, or null if not (yet) assigned. */
+/** The project's production alias of a READY deployment, or null if not (yet) assigned. */
 export function publicUrl(d: Deployment): string | null {
   // The per-deployment URL sits behind Vercel's default deployment protection;
-  // the production alias (<project>.vercel.app) is the one visitors open.
-  if (!d.aliasAssigned || d.aliasError) return null;
-  const aliases = d.alias ?? [];
-  const alias = aliases.find((a) => a.endsWith(".vercel.app")) ?? aliases[0];
-  return alias ? `https://${alias}` : null;
+  // the production alias <project>.vercel.app is the one visitors open. Take
+  // exactly that one, not whichever alias happens to be listed first.
+  if (!d.aliasAssigned || d.aliasError || !d.name) return null;
+  const want = `${d.name}.vercel.app`;
+  return (d.alias ?? []).includes(want) ? `https://${want}` : null;
 }
 
-/** The deployment belongs to this build's commitment project (and build, when tagged). */
+/**
+ * The deployment carries this exact build's tag and lives in this
+ * commitment's project. Every automated action (live, cancel) requires it;
+ * untagged (legacy) deployments are never touched.
+ */
 function belongsTo(d: Deployment, row: BuildRecord): boolean {
   const stamp = commitmentStamp(row.commitment_id);
   const nameOk = !!d.name && d.name.startsWith("aos-") && d.name.endsWith(`-${stamp}`);
-  // Builds started by this code are tagged; only legacy rows predate the tag.
-  const tagOk = d.meta?.aosBuildId ? d.meta.aosBuildId === row.id : true;
-  return nameOk && tagOk;
+  return nameOk && d.meta?.aosBuildId === row.id;
 }
 
 /**
@@ -137,7 +140,7 @@ export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: 
 
   if (!belongsTo(d, current)) {
     // Never act on someone else's deployment (a legacy row could name any id).
-    return fail("The deploy couldn't be matched to this build.", { name: d.name ?? null });
+    return fail("The deploy couldn't be matched to this build.");
   }
 
   if (d.readyState === "READY") {
@@ -150,12 +153,12 @@ export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: 
       );
       return saved ?? current;
     }
-    if (d.aliasError) return fail("The app built, but its address couldn't be assigned.", { aliasError: d.aliasError.code ?? null });
+    if (d.aliasError) return fail("The app built, but its address couldn't be assigned.", { aliasError: safeCode(d.aliasError.code) ?? null });
     // READY, but the alias or the app isn't answering yet — check again next time.
   } else if (d.readyState === "ERROR" || d.readyState === "CANCELED" || d.readyState === "BLOCKED" || d.readyState === "DELETED") {
     return fail(
       d.readyState === "CANCELED" ? "The deploy was cancelled." : "The deploy failed. Try again, or change the plan first.",
-      { readyState: d.readyState, errorCode: d.errorCode ?? null },
+      { readyState: d.readyState, errorCode: safeCode(d.errorCode) ?? null },
     );
   }
 

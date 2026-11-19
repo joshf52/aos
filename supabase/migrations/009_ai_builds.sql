@@ -54,6 +54,11 @@ create index if not exists ai_builds_user_idx       on public.ai_builds (user_id
 -- it explicitly rather than rely on how the project was created.
 grant select on public.commitments to service_role;
 
+-- A check from an earlier run of this file is enforced on updates even when
+-- NOT VALID, which would block the legacy backfills below. Drop it here; it
+-- is recreated further down, in the same transaction.
+alter table public.ai_builds drop constraint if exists ai_builds_live_has_deployment;
+
 -- Legacy rows the old 008 policy allowed but this schema can't hold.
 --
 -- (a) Rows attached to a commitment their user_id doesn't own. They would
@@ -78,19 +83,7 @@ delete from public.ai_builds b
   where not exists (select 1 from public.commitments c
                      where c.id = b.commitment_id and c.user_id = b.user_id);
 
--- (b) More than one "building" row for one (commitment, user) — a retry or a
---     race under the old code. The unique index below can't be built over
---     them, so every one but the newest is marked failed (rows and their
---     deployment ids are kept; the reconciler can still look them up).
-update public.ai_builds b
-  set status = 'failed', error = 'Superseded by a newer build.'
-  where b.status = 'building'
-    and exists (select 1 from public.ai_builds n
-                 where n.commitment_id = b.commitment_id and n.user_id = b.user_id
-                   and n.status = 'building'
-                   and (n.created_at, n.id) > (b.created_at, b.id));
-
--- (c) Error text written by the old pipeline is raw provider output, and the
+-- (b) Error text written by the old pipeline is raw provider output, and the
 --     row's owner can read it through the API. The original text moves to
 --     the quarantine (no API access); the row keeps a generic message. The
 --     list below is every message the current code writes — keep it in sync
@@ -125,6 +118,18 @@ update public.ai_builds b
     'The build stopped before the deploy started.',
     'Superseded by a newer build.');
 
+-- (c) More than one "building" row for one (commitment, user) — a retry or a
+--     race under the old code. The unique index below can't be built over
+--     them, so every one but the newest is marked failed (rows and their
+--     deployment ids are kept; the reconciler can still look them up).
+update public.ai_builds b
+  set status = 'failed', error = 'Superseded by a newer build.'
+  where b.status = 'building'
+    and exists (select 1 from public.ai_builds n
+                 where n.commitment_id = b.commitment_id and n.user_id = b.user_id
+                   and n.status = 'building'
+                   and (n.created_at, n.id) > (b.created_at, b.id));
+
 -- When the server confirmed the app answered at its public address as this
 -- deployment. Only rows written by the current code have it, so a legacy
 -- "live" row (marked live on mere acceptance) is never shown as live.
@@ -149,7 +154,6 @@ alter table public.ai_builds
 -- NOT VALID: legacy rows from the old pipeline (which marked builds live on
 -- acceptance) are kept as they are; every new insert and update is checked.
 -- The status page also refuses to show a row as live without both.
-alter table public.ai_builds drop constraint if exists ai_builds_live_has_deployment;
 alter table public.ai_builds
   add constraint ai_builds_live_has_deployment
   check (status <> 'live' or (coalesce(deployment_id, '') ~ '^[A-Za-z0-9_-]{4,128}$'
@@ -214,6 +218,14 @@ begin
      or new.commitment_id is distinct from old.commitment_id
      or new.created_at is distinct from old.created_at then
     raise exception 'ai_builds_immutable: id, user_id, commitment_id and created_at cannot change'
+      using errcode = 'P0001';
+  end if;
+  -- A verified live row is a record of what was checked: its deployment,
+  -- address and verification time can't be edited afterwards.
+  if old.status = 'live' and (new.deployment_id is distinct from old.deployment_id
+     or new.deployment_url is distinct from old.deployment_url
+     or new.verified_at is distinct from old.verified_at) then
+    raise exception 'ai_builds_immutable: a live build''s deployment, address and verification are final'
       using errcode = 'P0001';
   end if;
   if new.status is distinct from old.status and not (

@@ -45,7 +45,11 @@ function taggedFor(d: Deployment, row: BuildRecord): boolean {
 export async function sweepBuilds(admin: SupabaseClient<Database>, limit = 100, now = Date.now()): Promise<SweepReport> {
   const report: SweepReport = { reconciled: 0, nowLive: 0, nowFailed: 0, cancelled: 0, readyButFailed: [], skippedUntagged: 0, deferred: 0, errors: 0 };
   const deadline = now + BUDGET_MS;
-  const timeLeft = () => deadline - Date.now() > ITEM_RESERVE_MS;
+  // The building pass may use at most 60% of the budget, so cleanup of
+  // failed builds always gets its turn.
+  const buildingDeadline = now + Math.round(BUDGET_MS * 0.6);
+  let phaseDeadline = buildingDeadline;
+  const timeLeft = () => Math.min(deadline, phaseDeadline) - Date.now() > ITEM_RESERVE_MS;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = () => admin.from("ai_builds") as any;
   const scope = vercelScope();
@@ -55,7 +59,7 @@ export async function sweepBuilds(admin: SupabaseClient<Database>, limit = 100, 
   for (const row of shuffle((building ?? []) as BuildRecord[])) {
     if (!timeLeft()) { report.deferred++; continue; }
     try {
-      const after = await reconcileBuild(supabaseBuildStore(admin, row.user_id), row, { scope, deadline: deadline - 2_000 });
+      const after = await reconcileBuild(supabaseBuildStore(admin, row.user_id), row, { scope, deadline: buildingDeadline });
       report.reconciled++;
       if (after.status === "live") report.nowLive++;
       if (after.status === "failed") report.nowFailed++;
@@ -64,6 +68,7 @@ export async function sweepBuilds(admin: SupabaseClient<Database>, limit = 100, 
     }
   }
 
+  phaseDeadline = deadline;
   const since = new Date(now - RECENT_FAILED_MS).toISOString();
   const { data: failed, error: fErr } = await table()
     .select(BUILD_COLUMNS)

@@ -203,8 +203,11 @@ async function main() {
   // can't leave the project behind unregistered.
   async function registerProject(buildId: string) {
     if (report.resources.project) return;
-    const r = (await db.from("ai_builds").select("project_name").eq("id", buildId).single()).data;
-    if (!r?.project_name) return;
+    const { data: r, error } = await db.from("ai_builds").select("project_name").eq("id", buildId).single();
+    if (error || !r?.project_name) {
+      record("cleanup tracking: the build's Vercel project name was readable", false, error?.message ?? "no project name yet");
+      return;
+    }
     report.resources.project = r.project_name;
     const name = r.project_name;
     cleanups.push({ label: "delete the test Vercel project", run: async () => { await vercel(scope, `/v9/projects/${encodeURIComponent(name)}`, { method: "DELETE", retry: "none" }); } });

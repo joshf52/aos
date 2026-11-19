@@ -29,11 +29,15 @@ alter table public.ai_builds
 -- Put back what 009 moved into the quarantine:
 --   * whole rows (attached to another user's commitment), where both the
 --     commitment and the user still exist;
---   * the original error text of legacy rows.
--- Anything that can't be restored (its user or commitment was deleted since)
--- stays in the quarantine table, which is then kept. Rows 009 marked 'failed'
--- as superseded duplicates stay failed: their deployments were never tracked.
--- The verified_at column is kept (unused by the old shape; harmless).
+-- Raw provider error text from the old pipeline is NOT put back into the
+-- user-readable rows; it stays in the quarantine. Anything that can't be
+-- restored (its user or commitment was deleted since) stays there too, and
+-- the table is then kept. Rows 009 marked 'failed' as superseded duplicates
+-- stay failed: their deployments were never tracked.
+--
+-- verified_at is kept but never user-writable: the page treats it as the
+-- server's attestation, so users get UPDATE on every column except it. That
+-- is the one deliberate difference from the old grants.
 do $$
 begin
   if to_regclass('public.ai_builds_quarantine') is not null then
@@ -48,13 +52,6 @@ begin
       select (pg_catalog.jsonb_populate_record(null::public.ai_builds, r.row_data)).* from restorable r
       on conflict (id) do nothing;
 
-    update public.ai_builds b
-      set error = q.row_data->>'error'
-      from public.ai_builds_quarantine q
-      where q.reason like 'legacy error text%' and b.id = (q.row_data->>'id')::uuid;
-    delete from public.ai_builds_quarantine q
-      where q.reason like 'legacy error text%'
-        and exists (select 1 from public.ai_builds b where b.id = (q.row_data->>'id')::uuid);
 
     if not exists (select 1 from public.ai_builds_quarantine) then
       drop table public.ai_builds_quarantine;
@@ -70,8 +67,14 @@ create policy "Users manage their own ai_builds"
   on public.ai_builds for all
   using (auth.uid() = user_id);
 
--- Supabase's default grants for a table created in public (what the old file
--- relied on).
-grant all on public.ai_builds to anon, authenticated, service_role;
+-- The old file relied on Supabase's default grants (all privileges to the API
+-- roles), except that verified_at stays server-only (see above).
+revoke all on public.ai_builds from anon, authenticated;
+grant select, delete on public.ai_builds to anon, authenticated;
+grant insert (id, created_at, updated_at, commitment_id, user_id, status, build_config, project_name, deployment_id, deployment_url, error, edit_count)
+  on public.ai_builds to anon, authenticated;
+grant update (id, created_at, updated_at, commitment_id, user_id, status, build_config, project_name, deployment_id, deployment_url, error, edit_count)
+  on public.ai_builds to anon, authenticated;
+grant all on public.ai_builds to service_role;
 
 commit;

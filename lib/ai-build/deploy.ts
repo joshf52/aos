@@ -21,6 +21,7 @@ import { materialize } from "./materialize";
 import {
   createDeployment,
   ensureProject,
+  ensureSystemEnvs,
   upsertEnv,
   uploadFile,
   vercelScope,
@@ -143,11 +144,13 @@ export async function startDeploy(config: BuildConfig, opts: DeployOptions): Pro
       throw new StartError("The build's record changed before the deploy started.", false);
     }
     await upsertEnv(scope, project.id, env, opts.deadline);
+    await ensureSystemEnvs(scope, project.id, opts.deadline);
     let d;
     try {
       d = await createDeployment(scope, project, uploaded, opts.buildId, opts.deadline);
     } catch (e) {
-      const mayExist = e instanceof VercelError ? e.ambiguous : true;
+      // No answer, a 5xx, or a 2xx we couldn't read: Vercel may have created it.
+      const mayExist = e instanceof VercelError ? e.ambiguous || e.code === "bad_json" : true;
       throw new StartError(e instanceof Error ? e.message : String(e), mayExist);
     }
     if (!d?.id) throw new StartError("Vercel accepted the deployment but returned no id.", true);

@@ -3,20 +3,24 @@
 -- Moment 3 will recompile and reuse the same commitment, inserting new rows).
 --
 -- Idempotent on purpose. This table first shipped as 008_ai_builds.sql on the
--- Windows branch (same columns, one FOR ALL policy with no WITH CHECK). Running
--- this file on a database that already has that version upgrades it in place
--- and keeps every row; on a fresh database it creates everything; re-running
--- it is a no-op. One transaction, so a failure leaves nothing half-done —
--- supabase/manual/verify_ai_builds.sql reports the state before you apply it.
+-- Windows branch (same columns, one FOR ALL policy with no WITH CHECK), and
+-- that version is live on the hosted database. Running this file there
+-- upgrades it in place and keeps every row; on a fresh database it creates
+-- everything; re-running it is a no-op. One transaction, so a failure leaves
+-- nothing half-done. supabase/manual/verify_ai_builds.sql reports the state
+-- before and after; supabase/manual/rollback_009_ai_builds.sql undoes it.
 --
--- Rows are written by server code acting as the signed-in user (no service
--- role), so the user could also write them directly through the API. Each
--- build spends AOS money, so the rules below make the spend controls in
--- lib/ai-build/run.ts tamper-proof:
---   * no DELETE, and created_at / user_id / commitment_id can't be updated,
---     so the per-commitment daily build count can't be reset;
---   * INSERT / UPDATE must stay on one of the caller's own commitments;
---   * at most one in-flight build per (commitment, user).
+-- Who writes what:
+--   * Signed-in users can only READ their own rows. They can't insert,
+--     update or delete any row, so a build's status, URL and history can't
+--     be forged, and the daily build count can't be reset.
+--   * Server code writes with the service role (lib/supabase/service.ts,
+--     lib/ai-build/store.ts) after checking the signed-in user owns the
+--     commitment. The service role bypasses RLS, so the triggers below
+--     re-check what RLS can't: ownership, the daily cap, immutable columns,
+--     status transitions. It gets no DELETE: build history is the cap's
+--     evidence. (Deleting an account still removes its rows — referential
+--     actions run as the table owner.)
 
 begin;
 
@@ -46,9 +50,8 @@ create index if not exists ai_builds_user_idx       on public.ai_builds (user_id
 -- At most one in-flight build per commitment owner: a second tab or a retry
 -- can't start a second (paid) deploy. Keyed on user_id too, so a stray legacy
 -- row another user attached to this commitment (possible under the old 008
--- policy) can't occupy the owner's slot. run.ts maps the 23505 to a refusal.
--- Rebuilt every run so an index left by an earlier draft of this file (keyed
--- on commitment_id alone) can't survive.
+-- policy) can't occupy the owner's slot. store.ts maps the 23505 to a refusal.
+-- Rebuilt every run so an index from an earlier draft can't survive.
 drop index if exists public.ai_builds_one_inflight_per_commitment;
 create unique index ai_builds_one_inflight_per_commitment
   on public.ai_builds (commitment_id, user_id) where status = 'building';
@@ -59,25 +62,39 @@ alter table public.ai_builds
   add constraint ai_builds_commitment_id_fkey
   foreign key (commitment_id) references public.commitments(id);
 
--- Daily build cap, enforced at insert time so it can't be raced or bypassed:
--- created_at is always the server clock, and a commitment may start at most
--- 5 builds per rolling 24 hours (keep in sync with
--- MAX_BUILDS_PER_COMMITMENT_PER_DAY in lib/ai-build/limits.ts, which checks
--- first for a friendlier message). SECURITY DEFINER so the count isn't
--- filtered by RLS; it counts only the inserting user's own rows, so stray
--- legacy rows another user attached under the old policy can't use up the
--- owner's cap. Empty search_path: every object below is schema-qualified.
--- Assumes READ COMMITTED (PostgREST's default) for the post-lock count.
+-- "live" means Vercel reported READY and gave a public address; a row can't
+-- claim it without both. NOT VALID: legacy rows from the old pipeline (which
+-- marked builds live on acceptance) are kept as they are; every new insert
+-- and update is checked.
+alter table public.ai_builds drop constraint if exists ai_builds_live_has_deployment;
+alter table public.ai_builds
+  add constraint ai_builds_live_has_deployment
+  check (status <> 'live' or (deployment_id is not null and deployment_url is not null)) not valid;
+
+-- Insert rules, race-free:
+--   * the commitment must belong to the row's user (the service role bypasses
+--     RLS, so this is the database's own ownership check);
+--   * created_at / updated_at are the server clock;
+--   * at most 5 builds per (commitment, user) per rolling 24 hours (keep in
+--     sync with MAX_BUILDS_PER_COMMITMENT_PER_DAY in lib/ai-build/limits.ts).
+-- The advisory lock serializes inserts for one commitment until commit, so two
+-- concurrent inserts can't both count 4 and both land (READ COMMITTED, the
+-- PostgREST default, sees the first one's row after the lock is released).
+-- SECURITY INVOKER: only the service role and the owner insert, and both see
+-- every row. Empty search_path: every object below is schema-qualified.
 create or replace function public.ai_builds_before_insert()
 returns trigger
 language plpgsql
-security definer
+security invoker
 set search_path = ''
 as $$
 begin
-  -- Serialize inserts for the same commitment until commit, so two
-  -- concurrent inserts can't both count 4 and both land.
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('ai_builds:' || new.commitment_id::text));
+  if not exists (select 1 from public.commitments c
+                  where c.id = new.commitment_id and c.user_id = new.user_id) then
+    raise exception 'ai_builds_not_owner: the commitment does not belong to this build''s user'
+      using errcode = 'P0001';
+  end if;
   new.created_at := pg_catalog.now();
   new.updated_at := pg_catalog.now();
   if (select pg_catalog.count(*) from public.ai_builds
@@ -91,16 +108,52 @@ begin
 end;
 $$;
 
+-- Update rules: identity and history columns never change, and a status only
+-- moves forward (pending → approved → building → live | failed). live and
+-- failed are final; a retry is a new row, which the daily cap counts.
+create or replace function public.ai_builds_before_update()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if new.id is distinct from old.id
+     or new.user_id is distinct from old.user_id
+     or new.commitment_id is distinct from old.commitment_id
+     or new.created_at is distinct from old.created_at then
+    raise exception 'ai_builds_immutable: id, user_id, commitment_id and created_at cannot change'
+      using errcode = 'P0001';
+  end if;
+  if new.status is distinct from old.status and not (
+       (old.status = 'pending'  and new.status in ('approved', 'building', 'failed'))
+    or (old.status = 'approved' and new.status in ('building', 'failed'))
+    or (old.status = 'building' and new.status in ('live', 'failed'))
+  ) then
+    raise exception 'ai_builds_bad_transition: % -> % is not allowed', old.status, new.status
+      using errcode = 'P0001';
+  end if;
+  new.updated_at := pg_catalog.now();
+  return new;
+end;
+$$;
+
 revoke all on function public.ai_builds_before_insert() from public, anon, authenticated;
+revoke all on function public.ai_builds_before_update() from public, anon, authenticated;
 
 drop trigger if exists ai_builds_before_insert on public.ai_builds;
 create trigger ai_builds_before_insert
   before insert on public.ai_builds
   for each row execute function public.ai_builds_before_insert();
 
+drop trigger if exists ai_builds_before_update on public.ai_builds;
+create trigger ai_builds_before_update
+  before update on public.ai_builds
+  for each row execute function public.ai_builds_before_update();
+
 alter table public.ai_builds enable row level security;
 
--- Replace the old single FOR ALL policy with per-command policies (no DELETE).
+-- Replace every earlier policy (old 008, earlier 009 drafts) with read-only.
 drop policy if exists "Users manage their own ai_builds" on public.ai_builds;
 drop policy if exists "Users read their own ai_builds" on public.ai_builds;
 drop policy if exists "Users create builds for their own commitments" on public.ai_builds;
@@ -108,35 +161,15 @@ drop policy if exists "Users update their own ai_builds" on public.ai_builds;
 
 create policy "Users read their own ai_builds"
   on public.ai_builds for select
-  using (auth.uid() = user_id);
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
-create policy "Users create builds for their own commitments"
-  on public.ai_builds for insert
-  with check (
-    auth.uid() = user_id
-    and exists (
-      select 1 from public.commitments c
-      where c.id = commitment_id and c.user_id = auth.uid()
-    )
-  );
-
-create policy "Users update their own ai_builds"
-  on public.ai_builds for update
-  using (auth.uid() = user_id)
-  with check (
-    auth.uid() = user_id
-    and exists (
-      select 1 from public.commitments c
-      where c.id = commitment_id and c.user_id = auth.uid()
-    )
-  );
-
--- Privileges. Explicit so the table works whether or not the project grants
--- new tables to the API roles automatically. service_role is untouched.
+-- Privileges. Explicit, so the result doesn't depend on the project's default
+-- grants for new tables.
 revoke all on public.ai_builds from anon;
 revoke all on public.ai_builds from authenticated;
-grant select, insert on public.ai_builds to authenticated;
-grant update (status, build_config, project_name, deployment_id, deployment_url, error, edit_count, updated_at)
-  on public.ai_builds to authenticated;
+revoke all on public.ai_builds from service_role;
+grant select on public.ai_builds to authenticated;
+grant select, insert, update on public.ai_builds to service_role;
 
 commit;

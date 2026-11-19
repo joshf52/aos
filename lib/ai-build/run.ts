@@ -152,6 +152,13 @@ export async function runBuild(commitmentId: string): Promise<BuildOutcome> {
   if (iErr?.code === "23505") {
     throw new BuildRefused("A build is already running for this commitment.");
   }
+  // The database enforces the daily cap too (009 trigger), closing the gap
+  // between the count above and this insert.
+  if (iErr?.code === "P0001" && /ai_builds_daily_cap/.test(iErr.message ?? "")) {
+    throw new BuildRefused(
+      `This plan has been built ${MAX_BUILDS_PER_COMMITMENT_PER_DAY} times in the last 24 hours. Try again tomorrow.`,
+    );
+  }
   if (iErr || !inserted) throw new Error(iErr?.message ?? "Could not record build.");
   const buildId = (inserted as { id: string }).id;
 

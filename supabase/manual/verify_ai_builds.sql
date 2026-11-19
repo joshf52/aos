@@ -26,11 +26,19 @@ select
     when to_regclass('public.ai_builds') is null then 'absent'
     when exists (select 1 from p where policyname = 'Users manage their own ai_builds') then 'old 008'
     when (select count(*) from p) = 3
-     and exists (select 1 from pg_indexes where schemaname = 'public'
-                   and indexname = 'ai_builds_one_inflight_per_commitment'
-                   and indexdef like '%(commitment_id, user_id)%')
+     and (select relrowsecurity from pg_class where oid = to_regclass('public.ai_builds'))
+     and exists (select 1 from pg_index i
+                   where i.indexrelid = to_regclass('public.ai_builds_one_inflight_per_commitment')
+                     and i.indisunique and i.indisvalid
+                     and pg_get_indexdef(i.indexrelid) like '%(commitment_id, user_id)%'
+                     and pg_get_indexdef(i.indexrelid) like '%status = ''building''%')
+     and exists (select 1 from pg_trigger where tgrelid = to_regclass('public.ai_builds')
+                   and tgname = 'ai_builds_before_insert' and not tgisinternal and tgenabled <> 'D')
+     and exists (select 1 from pg_constraint where conrelid = to_regclass('public.ai_builds')
+                   and conname = 'ai_builds_commitment_id_fkey' and confdeltype = 'a')
      and not has_table_privilege('authenticated', 'public.ai_builds', 'DELETE')
      and not has_column_privilege('authenticated', 'public.ai_builds', 'created_at', 'UPDATE')
+     and not has_table_privilege('anon', 'public.ai_builds', 'SELECT')
       then 'current'
     else 'unexpected — inspect the columns below'
   end as state,
@@ -38,6 +46,11 @@ select
   (select string_agg(policyname || ' [' || cmd || ']' || case when with_check is null then '' else ' +check' end, '; ' order by policyname) from p) as policies,
   (select indexdef from pg_indexes where schemaname = 'public'
      and indexname = 'ai_builds_one_inflight_per_commitment') as inflight_index,
+  exists (select 1 from pg_trigger where tgrelid = to_regclass('public.ai_builds')
+            and tgname = 'ai_builds_before_insert' and not tgisinternal) as daily_cap_trigger,
+  (select case confdeltype when 'c' then 'cascade' when 'a' then 'no action' when 'r' then 'restrict' else confdeltype::text end
+     from pg_constraint where conrelid = to_regclass('public.ai_builds')
+       and conname = 'ai_builds_commitment_id_fkey') as commitment_fk_on_delete,
   case when to_regclass('public.ai_builds') is null then null
        else has_table_privilege('authenticated', 'public.ai_builds', 'DELETE') end as authenticated_can_delete,
   case when to_regclass('public.ai_builds') is null then null

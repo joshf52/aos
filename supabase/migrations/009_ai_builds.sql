@@ -24,7 +24,10 @@ create table if not exists public.ai_builds (
   id              uuid default uuid_generate_v4() primary key,
   created_at      timestamptz default now() not null,
   updated_at      timestamptz default now() not null,
-  commitment_id   uuid references public.commitments(id) on delete cascade not null,
+  -- NO ACTION, not CASCADE: deleting a commitment must not erase its build
+  -- history (that would reset the daily cap). Deleting the user still works:
+  -- user_id cascades and NO ACTION is checked at the end of the statement.
+  commitment_id   uuid references public.commitments(id) not null,
   user_id         uuid references auth.users(id) on delete cascade not null,
 
   status          text default 'pending' not null
@@ -44,8 +47,49 @@ create index if not exists ai_builds_user_idx       on public.ai_builds (user_id
 -- can't start a second (paid) deploy. Keyed on user_id too, so a stray legacy
 -- row another user attached to this commitment (possible under the old 008
 -- policy) can't occupy the owner's slot. run.ts maps the 23505 to a refusal.
-create unique index if not exists ai_builds_one_inflight_per_commitment
+-- Rebuilt every run so an index left by an earlier draft of this file (keyed
+-- on commitment_id alone) can't survive.
+drop index if exists public.ai_builds_one_inflight_per_commitment;
+create unique index ai_builds_one_inflight_per_commitment
   on public.ai_builds (commitment_id, user_id) where status = 'building';
+
+-- The old 008 table was created with ON DELETE CASCADE on commitment_id.
+alter table public.ai_builds drop constraint if exists ai_builds_commitment_id_fkey;
+alter table public.ai_builds
+  add constraint ai_builds_commitment_id_fkey
+  foreign key (commitment_id) references public.commitments(id);
+
+-- Daily build cap, enforced at insert time so it can't be raced or bypassed:
+-- created_at is always the server clock, and a commitment may start at most
+-- 5 builds per rolling 24 hours (keep in sync with
+-- MAX_BUILDS_PER_COMMITMENT_PER_DAY in lib/ai-build/limits.ts, which checks
+-- first for a friendlier message). SECURITY DEFINER so the count sees every
+-- row for the commitment, not just the caller's.
+create or replace function public.ai_builds_before_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.created_at := now();
+  new.updated_at := now();
+  if (select count(*) from public.ai_builds
+        where commitment_id = new.commitment_id
+          and created_at > now() - interval '24 hours') >= 5 then
+    raise exception 'ai_builds_daily_cap: this commitment started 5 builds in the last 24 hours'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.ai_builds_before_insert() from public, anon, authenticated;
+
+drop trigger if exists ai_builds_before_insert on public.ai_builds;
+create trigger ai_builds_before_insert
+  before insert on public.ai_builds
+  for each row execute function public.ai_builds_before_insert();
 
 alter table public.ai_builds enable row level security;
 

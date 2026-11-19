@@ -150,8 +150,16 @@ export async function draft(system: string, prompt: string): Promise<DraftResult
       system,
       messages: [{ role: "user", content: prompt }],
       // On a safety decline the API re-runs the request on the fallback model
-      // inside the same call (billed at that model's own rates).
-      ...(fallback ? { betas: ["server-side-fallback-2026-06-01"], fallbacks: [{ model: fallback }] } : {}),
+      // inside the same call (billed at that model's own rates). The docs
+      // require `thinking` on a Claude Sonnet 5 entry under the 2026-06-01
+      // header; set it explicitly (valid on Sonnet 5 under either header) and
+      // use 2026-07-01, which also accepts this array form.
+      ...(fallback
+        ? {
+            betas: ["server-side-fallback-2026-07-01"],
+            fallbacks: [{ model: fallback, thinking: { type: "adaptive" as const } }],
+          }
+        : {}),
     });
 
     const text = msg.content
@@ -171,6 +179,10 @@ export async function draft(system: string, prompt: string): Promise<DraftResult
         cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
         attempts: msg.usage.iterations?.length ?? 1,
         est_cost_usd: estimateCostUsd(msg.model, msg.usage as UsageLike & { iterations?: UsageLike[] | null }),
+        // A decline before any output is billed only in some refusal
+        // categories, which the iterations don't report, so with a fallback
+        // the estimate may include an unbilled attempt.
+        est_cost_is_upper_bound: (msg.usage.iterations?.length ?? 1) > 1,
         ms: Date.now() - started,
       }),
     );

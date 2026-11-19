@@ -15,6 +15,16 @@ Tracked tasks deferred for later. Pick up the next item by feeding it back to Cl
 5. Verify end-to-end with `stripe listen --forward-to localhost:3000/api/webhooks/stripe` + a test checkout, then again on production with a real card.
 6. Decide whether to add a Stripe Customer Portal link to `/preferences` (so users can manage / cancel from inside the app — currently Pro is one-way until they email).
 
+### AI Build — activation (required before the non-builder path goes live)
+**When:** before any non-builder presses "Begin build" on production.
+**Why deferred:** The compile → materialize → deploy pipeline is verified offline (fixture compile, mocked Vercel API, local `next build` of a generated kit). A real Vercel deploy has never run.
+**Steps:**
+1. Apply `009_ai_builds.sql` in the Supabase SQL editor. It was `008_ai_builds.sql` on the old Windows branch: if `public.ai_builds` already exists in the live DB, skip it (the file is not idempotent).
+2. Set `VERCEL_TOKEN` (+ `VERCEL_TEAM_ID` if deploying into a team), and `AI_BUILD_ANTHROPIC_KEY` so generated apps can call Claude. Without the key the generated `/api/wedge` returns 503.
+3. Run one real build against a test commitment and confirm Vercel accepts the `/v13/deployments` body — in particular the `env` array shape, which is unverified against the live API.
+4. Decide the generated app's model: `starter-kit/app/api/wedge/route.ts` still calls `claude-sonnet-4-20250514`.
+5. Note: `ai_builds.status` flips to `live` when Vercel accepts the deployment, not when it reaches READY; the first visit may hit a still-building URL.
+
 ### Resend webhook — manual setup
 **When:** before launch.
 **Why deferred:** Code is in. Needs Resend dashboard config.

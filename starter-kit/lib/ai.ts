@@ -180,9 +180,10 @@ export async function draft(system: string, prompt: string): Promise<DraftResult
         attempts: msg.usage.iterations?.length ?? 1,
         est_cost_usd: estimateCostUsd(msg.model, msg.usage as UsageLike & { iterations?: UsageLike[] | null }),
         // A decline before any output is billed only in some refusal
-        // categories, which the iterations don't report, so with a fallback
-        // the estimate may include an unbilled attempt.
-        est_cost_is_upper_bound: (msg.usage.iterations?.length ?? 1) > 1,
+        // categories, which iterations don't report, so any declined attempt
+        // (a fallback ran, or the reply itself is a refusal) makes this an
+        // upper bound.
+        est_cost_is_upper_bound: (msg.usage.iterations?.length ?? 1) > 1 || msg.stop_reason === "refusal",
         ms: Date.now() - started,
       }),
     );

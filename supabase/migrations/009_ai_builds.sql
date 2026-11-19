@@ -63,23 +63,27 @@ alter table public.ai_builds
 -- created_at is always the server clock, and a commitment may start at most
 -- 5 builds per rolling 24 hours (keep in sync with
 -- MAX_BUILDS_PER_COMMITMENT_PER_DAY in lib/ai-build/limits.ts, which checks
--- first for a friendlier message). SECURITY DEFINER so the count sees every
--- row for the commitment, not just the caller's.
+-- first for a friendlier message). SECURITY DEFINER so the count isn't
+-- filtered by RLS; it counts only the inserting user's own rows, so stray
+-- legacy rows another user attached under the old policy can't use up the
+-- owner's cap. Empty search_path: every object below is schema-qualified.
+-- Assumes READ COMMITTED (PostgREST's default) for the post-lock count.
 create or replace function public.ai_builds_before_insert()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   -- Serialize inserts for the same commitment until commit, so two
   -- concurrent inserts can't both count 4 and both land.
-  perform pg_advisory_xact_lock(hashtext('ai_builds:' || new.commitment_id::text));
-  new.created_at := now();
-  new.updated_at := now();
-  if (select count(*) from public.ai_builds
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('ai_builds:' || new.commitment_id::text));
+  new.created_at := pg_catalog.now();
+  new.updated_at := pg_catalog.now();
+  if (select pg_catalog.count(*) from public.ai_builds
         where commitment_id = new.commitment_id
-          and created_at > now() - interval '24 hours') >= 5 then
+          and user_id = new.user_id
+          and created_at > pg_catalog.now() - interval '24 hours') >= 5 then
     raise exception 'ai_builds_daily_cap: this commitment started 5 builds in the last 24 hours'
       using errcode = 'P0001';
   end if;

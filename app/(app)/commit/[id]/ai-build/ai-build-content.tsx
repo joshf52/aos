@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, CheckCircle2, Clock, ExternalLink, MessageSquare, Rocket } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock, ExternalLink, MessageSquare, RefreshCw, Rocket } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AOSAnimatedBackground } from "@/components/aos/animated-background";
@@ -13,6 +14,9 @@ import type { AiBuildStatus } from "@/types/database";
 const SPRING = [0.22, 1, 0.36, 1] as const;
 const POP = [0.22, 1.5, 0.36, 1] as const;
 
+// How often an in-progress build re-checks its status (server re-render).
+const STATUS_POLL_MS = 15_000;
+
 const DELIVERABLES = [
   "Working MVP with your core wedge",
   "Landing page to validate demand",
@@ -21,20 +25,34 @@ const DELIVERABLES = [
 ];
 
 const STEPS = [
-  { icon: Clock, label: "Architecture review", sub: "We'll send you a plan within 24 hours to approve." },
-  { icon: Rocket, label: "Build begins", sub: "AI constructs your MVP based on your lens inputs." },
+  { icon: Clock, label: "Architecture review", sub: "Read the plan and approve it. Nothing is built before you do." },
+  { icon: Rocket, label: "Build begins", sub: "Once you approve, we deploy a working first version from your lens." },
   { icon: MessageSquare, label: "You review & ship", sub: "One round of changes, then it's yours." },
 ];
 
 type BuildSummary = { status: AiBuildStatus; deploymentUrl: string | null; error: string | null };
 
+// One phase drives the heading, copy, status card, rail and bottom action.
+// `pending` means a plan exists but the user hasn't approved it yet.
+type Phase = "review" | "queued" | "building" | "live" | "failed";
+
+function phaseOf(build: BuildSummary | null): Phase {
+  if (!build || build.status === "pending") return "review";
+  if (build.status === "approved") return "queued";
+  return build.status;
+}
+
 // Which STEPS index is current. A failed build stays on "Build begins" so the
 // rail shows where it stalled rather than pretending it advanced.
-function activeStepIndex(build: BuildSummary | null): number {
-  if (!build || build.status === "pending") return 0;
-  if (build.status === "live") return 2;
-  return 1;
-}
+const ACTIVE_STEP: Record<Phase, number> = { review: 0, queued: 1, building: 1, failed: 1, live: 2 };
+
+const HEADING: Record<Phase, string> = {
+  review: "Your plan is ready to review.",
+  queued: "Your build is queued.",
+  building: "Building now.",
+  live: "Your build is live.",
+  failed: "The build stalled.",
+};
 
 export function AIBuildContent({
   commitmentId,
@@ -48,7 +66,20 @@ export function AIBuildContent({
   build: BuildSummary | null;
 }) {
   const router = useRouter();
-  const activeStep = activeStepIndex(build);
+  const phase = phaseOf(build);
+  const activeStep = ACTIVE_STEP[phase];
+  const inProgress = phase === "queued" || phase === "building";
+  const architectureHref = `/commit/${commitmentId}/ai-build/architecture`;
+
+  // While a build is in flight this page is the status view: re-fetch the
+  // server component so the latest ai_builds row shows without a manual reload.
+  useEffect(() => {
+    if (!inProgress) return;
+    const id = window.setInterval(() => router.refresh(), STATUS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [inProgress, router]);
+
+  const title = <span className="text-aos-gold">{opportunityTitle}</span>;
 
   return (
     <main className="relative min-h-dvh bg-aos-bg overflow-hidden">
@@ -76,13 +107,7 @@ export function AIBuildContent({
           transition={{ duration: 0.6, delay: 0.1, ease: SPRING }}
           className="font-serif text-[40px] text-aos-text tracking-[-0.03em] leading-[1.05]"
         >
-          {build?.status === "live"
-            ? "Your build is live."
-            : build?.status === "failed"
-            ? "The build stalled."
-            : build?.status === "building"
-            ? "Building now."
-            : "Your build is queued."}
+          {HEADING[phase]}
         </motion.h1>
 
         <motion.p
@@ -91,36 +116,40 @@ export function AIBuildContent({
           transition={{ duration: 0.6, delay: 0.18, ease: SPRING }}
           className="font-serif italic text-[16px] text-aos-secondary leading-relaxed mt-3"
         >
-          {build?.status === "live" ? (
-            <>You can open it now. We&apos;ll email you when it&apos;s ready to share.</>
-          ) : build?.status === "failed" ? (
-            <>Something broke during deployment. The details are below.</>
-          ) : (
+          {phase === "review" ? (
             <>
-              We&apos;ve received your commitment. The AI is reviewing your lens
-              inputs and will begin building{" "}
-              <span className="text-aos-gold">{opportunityTitle}</span> within
-              24 hours.
+              Nothing gets built until you approve it. Read the plan for {title},
+              rewrite anything that doesn&apos;t sound like your idea, then hold to begin.
             </>
+          ) : phase === "queued" ? (
+            <>You approved the plan for {title}. The deploy starts on its own, and this page updates when it&apos;s live.</>
+          ) : phase === "building" ? (
+            <>We&apos;re deploying {title} now. This page checks in on its own, and the live link appears here.</>
+          ) : phase === "live" ? (
+            <>Open it, try the workflow, then share the link.</>
+          ) : (
+            <>Something broke during deployment. The details are below.</>
           )}
         </motion.p>
 
-        {/* Build status — only shown once a build has been triggered. */}
-        {build && (
+        {/* Build status — once the plan is approved. */}
+        {phase !== "review" && build && (
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.22, ease: SPRING }}
+            role="status"
+            aria-live="polite"
             className={
               "mt-6 p-5 rounded-[18px] border " +
-              (build.status === "live"
+              (phase === "live"
                 ? "bg-aos-surface border-aos-gold/[0.35]"
-                : build.status === "failed"
+                : phase === "failed"
                 ? "bg-[rgba(255,80,80,0.06)] border-[rgba(255,80,80,0.30)]"
                 : "bg-aos-surface border-aos-border")
             }
           >
-            {build.status === "live" && build.deploymentUrl ? (
+            {phase === "live" && build.deploymentUrl ? (
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-[10px] uppercase tracking-[0.16em] text-aos-gold">
@@ -139,25 +168,28 @@ export function AIBuildContent({
                   Open <ExternalLink size={12} strokeWidth={2.5} />
                 </Link>
               </div>
-            ) : build.status === "failed" ? (
+            ) : phase === "failed" ? (
               <div>
                 <div className="text-[10px] uppercase tracking-[0.16em] text-red-300">Error</div>
                 <p className="text-[13px] text-aos-text mt-1 leading-snug">{build.error ?? "Unknown error."}</p>
-                <Link
-                  href={`/commit/${commitmentId}/ai-build/architecture`}
-                  className="inline-flex items-center gap-1.5 mt-3 text-[12px] text-aos-secondary hover:text-aos-text transition-colors"
-                >
-                  Review the plan and try again <ArrowRight size={12} strokeWidth={2.5} />
-                </Link>
               </div>
+            ) : phase === "live" ? (
+              <div className="text-[13px] text-aos-secondary">Live, but the link hasn&apos;t come through yet. Check again in a moment.</div>
             ) : (
-              <div className="text-[13px] text-aos-secondary">Build in progress — refresh in a minute.</div>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-aos-tertiary">
+                  {phase === "queued" ? "Queued" : "Deploying"}
+                </div>
+                <p className="text-[13px] text-aos-secondary mt-1 leading-snug">
+                  Plan approved. This page checks the build every 15 seconds.
+                </p>
+              </div>
             )}
           </motion.div>
         )}
 
-        {/* Architecture CTA — only when no build has been triggered yet. */}
-        {!build && (
+        {/* Approval CTA — before the plan is approved. */}
+        {phase === "review" && (
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -165,7 +197,7 @@ export function AIBuildContent({
             className="mt-7"
           >
             <Link
-              href={`/commit/${commitmentId}/ai-build/architecture`}
+              href={architectureHref}
               className="focus-gold inline-flex items-center gap-2 px-5 py-3 rounded-[14px] text-[14px] font-semibold tracking-[-0.01em] bg-aos-gold/10 border border-aos-gold/[0.35] text-aos-gold hover:bg-aos-gold/[0.16] transition-colors"
             >
               Review the architecture <ArrowRight size={14} strokeWidth={2.5} />
@@ -183,7 +215,7 @@ export function AIBuildContent({
           <div className="text-[11px] text-aos-tertiary uppercase tracking-[0.14em] font-medium mb-3 font-mono">
             Your lens, becoming a system
           </div>
-          <BuildPathConstellation modules={DELIVERABLES} intensity={0.85} />
+          <BuildPathConstellation modules={DELIVERABLES} intensity={0.85} layout="stacked" />
         </motion.div>
 
         {/* What we'll build */}
@@ -285,19 +317,34 @@ export function AIBuildContent({
           </motion.div>
         )}
 
-        {/* CTA */}
-        <motion.button
+        {/* Primary action — the next step for this phase, not an unrelated dashboard. */}
+        <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.56, ease: SPRING }}
-          onClick={() => router.push("/dashboard")}
           whileTap={{ scale: 0.98 }}
-          className="mt-7 flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-base font-semibold tracking-[-0.01em] bg-aos-text text-aos-bg"
+          className="mt-7"
         >
-          Track your build <ArrowRight size={17} strokeWidth={2.5} />
-        </motion.button>
+          {phase === "review" || phase === "failed" ? (
+            <Link href={architectureHref} className={PRIMARY}>
+              {phase === "review" ? "Review and approve the plan" : "Review the plan and try again"}
+              <ArrowRight size={17} strokeWidth={2.5} />
+            </Link>
+          ) : phase === "live" && build?.deploymentUrl ? (
+            <Link href={build.deploymentUrl} target="_blank" rel="noopener noreferrer" className={PRIMARY}>
+              Open your app <ExternalLink size={16} strokeWidth={2.5} />
+            </Link>
+          ) : (
+            <button type="button" onClick={() => router.refresh()} className={PRIMARY}>
+              Check build status <RefreshCw size={16} strokeWidth={2.5} />
+            </button>
+          )}
+        </motion.div>
 
       </div>
     </main>
   );
 }
+
+const PRIMARY =
+  "flex items-center justify-center gap-2 w-full py-[17px] rounded-[18px] text-base font-semibold tracking-[-0.01em] bg-aos-text text-aos-bg";

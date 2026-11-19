@@ -35,12 +35,13 @@ export function ArchitectureContent({
     answer_5: string | null;
   };
   updateLensAnswer: (commitmentId: string, field: 1 | 3 | 4, value: string) => Promise<void>;
-  beginBuild: (commitmentId: string) => Promise<void>;
+  beginBuild: (commitmentId: string) => Promise<{ error: string } | void>;
 }) {
   const [editing, setEditing] = useState<EditableField | null>(null);
   const [draft, setDraft] = useState("");
   const [pending, startTransition] = useTransition();
   const [building, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
 
   function openEdit(field: EditableField) {
     const map: Record<EditableField, string | null> = {
@@ -64,7 +65,20 @@ export function ArchitectureContent({
   function handleBegin() {
     if (building) return;
     setBuilding(true);
-    beginBuild(commitmentId).catch(() => setBuilding(false));
+    setBuildError(null);
+    // On success the action redirects to the build page; a returned error
+    // (refused, or failed to start) puts the user back here with the reason.
+    beginBuild(commitmentId)
+      .then((res) => {
+        if (res && "error" in res) {
+          setBuildError(res.error);
+          setBuilding(false);
+        }
+      })
+      .catch(() => {
+        setBuildError("The build couldn't start. Try again in a moment.");
+        setBuilding(false);
+      });
   }
 
   return (
@@ -193,18 +207,23 @@ export function ArchitectureContent({
           className="mt-14 flex flex-col items-center"
         >
           <p className="font-serif italic text-[15px] text-aos-secondary mb-5 text-center text-balance">
-            Hold to begin. A live preview URL arrives within 24 hours.
+            Hold to approve and begin. The deploy starts right away, and its live link appears on your build page.
           </p>
           {/* HoldButton latches after one completed hold. Re-key it so it comes
               back usable after a hold dropped during an edit, or a failed
               beginBuild resets `building`. */}
           <HoldButton
             key={editing ? "editing" : building ? "building" : "ready"}
-            label={building ? "Sending to the build queue…" : "Begin build"}
+            label={building ? "Starting your build…" : "Begin build"}
             holdLabel="Hold…"
             duration={1200}
             onComplete={() => { if (!building && !editing) handleBegin(); }}
           />
+          {buildError && (
+            <p role="alert" className="mt-4 text-[13px] text-red-300 text-center text-balance max-w-sm">
+              {buildError}
+            </p>
+          )}
         </motion.section>
 
       </div>

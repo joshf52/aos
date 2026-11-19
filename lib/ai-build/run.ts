@@ -110,8 +110,9 @@ const defaultDeps: BuildDeps = {
   cancel: async (id) => cancelDeployment(vercelScope(), id),
 };
 
-// Time the start may take, inside the server action's maxDuration (60 s on
-// the architecture route), leaving room to record the outcome.
+// One clock for the whole action, started at entry: the architecture route's
+// maxDuration is 60 s, and the Vercel calls must be answered by 45 s so the
+// outcome can still be recorded (and, if needed, the deployment cancelled).
 const START_BUDGET_MS = 45_000;
 
 const CAP_MESSAGE = `This plan has been built ${MAX_BUILDS_PER_COMMITMENT_PER_DAY} times in the last 24 hours. Try again tomorrow.`;
@@ -119,9 +120,10 @@ const START_FAILED = "The deploy couldn't start. Try again in a moment.";
 
 /** The server action's entry point. */
 export async function runBuild(commitmentId: string): Promise<BuildOutcome> {
+  const deadline = Date.now() + START_BUDGET_MS;
   const inputs = await loadInputs(commitmentId);
   const store = supabaseBuildStore(createServiceClient(), inputs.userId);
-  return executeBuild(inputs, store);
+  return executeBuild(inputs, store, defaultDeps, deadline);
 }
 
 /**
@@ -132,6 +134,7 @@ export async function executeBuild(
   inputs: LoadedInputs,
   store: BuildStore,
   deps: BuildDeps = defaultDeps,
+  deadline: number = Date.now() + START_BUDGET_MS,
 ): Promise<BuildOutcome> {
   const commitmentId = inputs.commitment.id;
 
@@ -148,7 +151,7 @@ export async function executeBuild(
   // genuinely still deploying blocks a new one; a dead one is recorded failed.
   const inflight = await store.latestInflight(commitmentId);
   if (inflight) {
-    const now = await reconcileBuild(store, inflight);
+    const now = await reconcileBuild(store, inflight, { deadline });
     if (now.status === "building") throw new BuildRefused("A build is already running for this commitment.");
   }
 
@@ -177,7 +180,7 @@ export async function executeBuild(
   try {
     started = await deps.startDeploy(config, {
       buildId: row.id,
-      deadline: Date.now() + START_BUDGET_MS,
+      deadline,
       // Record the project before the deployment exists, so a lost create
       // response can still be found (reconcile.ts looks it up by build id).
       // If the row was taken over meanwhile, stop before deploying.
@@ -216,6 +219,27 @@ export async function executeBuild(
     console.error(JSON.stringify({ event: "ai_build_persist_failed", build: row.id, deployment: started.deploymentId, message: String(err) }));
   }
   if (!saved) {
+    // The write may have landed with its answer lost, or a status check may
+    // have adopted this very deployment first. Either way it is tracked.
+    let now = await store.get(row.id).catch(() => undefined);
+    if (now === undefined) {
+      // Can't read the row: can't tell whether this deployment is tracked.
+      // Its build-id tag lets reconcile adopt it later (or the cron cancel it
+      // once the row is failed), so don't cancel something that may be live.
+      console.error(JSON.stringify({ event: "ai_build_untracked_deployment", build: row.id, deployment: started.deploymentId, cancel: "deferred" }));
+      return { buildId: row.id, status: "building", error: null };
+    }
+    if (now?.status === "building" && now.deployment_id === null) {
+      // Readable and still unrecorded: one more try at recording it.
+      now = await store
+        .update(row.id, { deployment_id: started.deploymentId, project_name: started.projectName }, { status: "building", deploymentId: null })
+        .catch(() => now);
+    }
+    if (now?.deployment_id === started.deploymentId) {
+      const failedNow = now.status === "failed";
+      return { buildId: row.id, status: failedNow ? "failed" : "building", error: failedNow ? START_FAILED : null };
+    }
+    // The row is gone, finished, or tracks something else: this deployment is ours alone to stop.
     const cancel = await deps.cancel(started.deploymentId).catch(() => "failed" as const);
     console.error(JSON.stringify({ event: "ai_build_untracked_deployment", build: row.id, deployment: started.deploymentId, cancel }));
     await store.update(row.id, { status: "failed", error: START_FAILED }, "building").catch(() => {});

@@ -8,31 +8,54 @@
  *     building — e.g. the status check gave up while Vercel was unreachable,
  *     or a cancel failed. Those are cancelled. A failed row whose deployment
  *     is READY is reported (it was never recorded live, so no user sees it;
- *     removing it is a manual call).
+ *     removing a production deployment is left to the operator).
+ *
+ * Only deployments carrying this exact build's tag (meta.aosBuildId) in this
+ * commitment's project are ever cancelled. Untagged (legacy) ones are left
+ * alone. The run stops starting new work near its time budget, and works in
+ * a random order so a slow item can't starve the rest across runs.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { commitmentStamp } from "./deploy";
 import { reconcileBuild } from "./reconcile";
-import { supabaseBuildStore, type BuildRecord } from "./store";
+import { BUILD_COLUMNS, supabaseBuildStore, type BuildRecord } from "./store";
 import { cancelDeployment, findDeploymentForBuild, getDeployment, IN_PROGRESS, vercelScope, type Deployment } from "./vercel";
 
-const COLUMNS = "id, commitment_id, user_id, status, deployment_id, deployment_url, project_name, error, created_at, updated_at";
-const RECENT_FAILED_MS = 3 * 24 * 60 * 60_000;
+const RECENT_FAILED_MS = 14 * 24 * 60 * 60_000;
+const BUDGET_MS = 45_000;
+const ITEM_RESERVE_MS = 12_000;
 
-export type SweepReport = { reconciled: number; nowLive: number; nowFailed: number; cancelled: number; readyButFailed: string[]; errors: number };
+export type SweepReport = {
+  reconciled: number; nowLive: number; nowFailed: number; cancelled: number;
+  readyButFailed: string[]; skippedUntagged: number; deferred: number; errors: number;
+};
 
-export async function sweepBuilds(admin: SupabaseClient<Database>, limit = 100): Promise<SweepReport> {
-  const report: SweepReport = { reconciled: 0, nowLive: 0, nowFailed: 0, cancelled: 0, readyButFailed: [], errors: 0 };
+const shuffle = <T,>(xs: T[]) => {
+  const a = [...xs];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+};
+
+function taggedFor(d: Deployment, row: BuildRecord): boolean {
+  return d.meta?.aosBuildId === row.id && !!d.name && d.name.endsWith(`-${commitmentStamp(row.commitment_id)}`);
+}
+
+export async function sweepBuilds(admin: SupabaseClient<Database>, limit = 100, now = Date.now()): Promise<SweepReport> {
+  const report: SweepReport = { reconciled: 0, nowLive: 0, nowFailed: 0, cancelled: 0, readyButFailed: [], skippedUntagged: 0, deferred: 0, errors: 0 };
+  const deadline = now + BUDGET_MS;
+  const timeLeft = () => deadline - Date.now() > ITEM_RESERVE_MS;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const table = () => admin.from("ai_builds") as any;
   const scope = vercelScope();
 
-  const { data: building, error: bErr } = await table().select(COLUMNS).eq("status", "building").order("created_at").limit(limit);
+  const { data: building, error: bErr } = await table().select(BUILD_COLUMNS).eq("status", "building").order("created_at").limit(limit);
   if (bErr) throw new Error(`ai_builds read failed: ${bErr.message}`);
-  for (const row of (building ?? []) as BuildRecord[]) {
+  for (const row of shuffle((building ?? []) as BuildRecord[])) {
+    if (!timeLeft()) { report.deferred++; continue; }
     try {
-      const after = await reconcileBuild(supabaseBuildStore(admin, row.user_id), row, { scope });
+      const after = await reconcileBuild(supabaseBuildStore(admin, row.user_id), row, { scope, deadline: deadline - 2_000 });
       report.reconciled++;
       if (after.status === "live") report.nowLive++;
       if (after.status === "failed") report.nowFailed++;
@@ -41,24 +64,29 @@ export async function sweepBuilds(admin: SupabaseClient<Database>, limit = 100):
     }
   }
 
-  const since = new Date(Date.now() - RECENT_FAILED_MS).toISOString();
+  const since = new Date(now - RECENT_FAILED_MS).toISOString();
   const { data: failed, error: fErr } = await table()
-    .select(COLUMNS)
+    .select(BUILD_COLUMNS)
     .eq("status", "failed")
     .gte("updated_at", since)
     .order("updated_at", { ascending: false })
     .limit(limit);
   if (fErr) throw new Error(`ai_builds read failed: ${fErr.message}`);
-  for (const row of (failed ?? []) as BuildRecord[]) {
+  for (const row of shuffle((failed ?? []) as BuildRecord[])) {
+    if (!timeLeft()) { report.deferred++; continue; }
     try {
       let d: Deployment | null = null;
-      if (row.deployment_id) d = await getDeployment(scope, row.deployment_id).catch(() => null);
-      else if (row.project_name) d = await findDeploymentForBuild(scope, row.project_name, row.id, Date.parse(row.created_at));
-      // Only act on deployments tagged as this build (or legacy rows' own id).
-      if (!d || (d.meta?.aosBuildId && d.meta.aosBuildId !== row.id)) continue;
+      if (row.deployment_id) {
+        d = await getDeployment(scope, row.deployment_id, deadline - 2_000).catch(() => null);
+      } else if (row.project_name) {
+        const f = await findDeploymentForBuild(scope, row.project_name, row.id, Date.parse(row.created_at), deadline - 2_000);
+        d = f === "unknown" ? null : f;
+      }
+      if (!d) continue;
+      if (!taggedFor(d, row)) { report.skippedUntagged++; continue; }
       if (IN_PROGRESS.includes(d.readyState)) {
-        if ((await cancelDeployment(scope, d.id)) === "cancelled") report.cancelled++;
-      } else if (d.readyState === "READY" && d.meta?.aosBuildId === row.id) {
+        if ((await cancelDeployment(scope, d.id, deadline - 2_000)) === "cancelled") report.cancelled++;
+      } else if (d.readyState === "READY") {
         report.readyButFailed.push(d.id);
       }
     } catch {

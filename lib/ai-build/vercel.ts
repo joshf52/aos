@@ -73,7 +73,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function errorCode(res: Response): Promise<string | undefined> {
   try {
     const j = (await res.json()) as { error?: { code?: unknown } };
-    return typeof j.error?.code === "string" ? j.error.code.slice(0, 60) : undefined;
+    // Codes only, and only code-shaped ones: nothing a response could smuggle into logs.
+    return typeof j.error?.code === "string" && /^[A-Za-z0-9_.-]{1,60}$/.test(j.error.code) ? j.error.code : undefined;
   } catch {
     return undefined;
   }
@@ -113,7 +114,12 @@ export async function vercel<T>(scope: VercelScope, path: string, opts: CallOpti
     }
     if (res.ok) {
       const text = await res.text();
-      return (text ? JSON.parse(text) : {}) as T;
+      try {
+        return (text ? JSON.parse(text) : {}) as T;
+      } catch {
+        // The parser's message quotes the body; say only that it wasn't JSON.
+        throw new VercelError(`Vercel ${where} answered ${res.status} with a body that is not JSON.`, -2, "bad_json");
+      }
     }
     const code = await errorCode(res);
     last = new VercelError(`Vercel ${where} failed (${res.status}${code ? ` ${code}` : ""}).`, res.status, code);
@@ -229,36 +235,53 @@ export async function createDeployment(
   });
 }
 
-export function getDeployment(scope: VercelScope, id: string): Promise<Deployment> {
-  return vercel<Deployment>(scope, `/v13/deployments/${encodeURIComponent(id)}`);
+export function getDeployment(scope: VercelScope, id: string, deadline?: number): Promise<Deployment> {
+  return vercel<Deployment>(scope, `/v13/deployments/${encodeURIComponent(id)}`, { deadline });
 }
 
 /**
  * The deployment (if any) in this project tagged with this build id, created
- * at or after `sinceMs`. Used when a create response was lost.
+ * at or after `sinceMs`. Used when a create response was lost. Returns
+ * "unknown" when the search couldn't be completed: absence is reported only
+ * after every candidate was checked.
  */
 export async function findDeploymentForBuild(
   scope: VercelScope,
   projectIdOrName: string,
   buildId: string,
   sinceMs: number,
-): Promise<Deployment | null> {
-  const list = await vercel<{ deployments: { uid: string; createdAt?: number; created?: number }[] }>(scope, "/v7/deployments", {
-    query: { projectId: projectIdOrName, since: String(sinceMs - 60_000), limit: "20" },
-  });
-  for (const item of list.deployments ?? []) {
-    const d = await getDeployment(scope, item.uid);
-    if (d.meta?.aosBuildId === buildId) return d;
+  deadline?: number,
+): Promise<Deployment | null | "unknown"> {
+  let until: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    const list = await vercel<{ deployments: { uid: string }[]; pagination?: { next?: number | null } }>(scope, "/v7/deployments", {
+      query: { projectId: projectIdOrName, since: String(sinceMs - 60_000), limit: "20", ...(until ? { until } : {}) },
+      deadline,
+    });
+    for (const item of list.deployments ?? []) {
+      let d: Deployment;
+      try {
+        d = await getDeployment(scope, item.uid, deadline);
+      } catch (e) {
+        // Deleted between list and read: not ours to find. Anything else: unknown.
+        if (e instanceof VercelError && e.status === 404) continue;
+        return "unknown";
+      }
+      if (d.meta?.aosBuildId === buildId) return d;
+    }
+    const next = list.pagination?.next;
+    if (!next) return null;
+    until = String(next);
   }
-  return null;
+  return "unknown";
 }
 
 export type CancelResult = "cancelled" | "not-cancelable" | "failed";
 
 /** A deployment already READY / ERROR / CANCELED answers 400 (not cancelable). */
-export async function cancelDeployment(scope: VercelScope, id: string): Promise<CancelResult> {
+export async function cancelDeployment(scope: VercelScope, id: string, deadline?: number): Promise<CancelResult> {
   try {
-    await vercel(scope, `/v12/deployments/${encodeURIComponent(id)}/cancel`, { method: "PATCH", retry: "idempotent" });
+    await vercel(scope, `/v12/deployments/${encodeURIComponent(id)}/cancel`, { method: "PATCH", retry: "idempotent", deadline });
     return "cancelled";
   } catch (e) {
     return e instanceof VercelError && e.status === 400 ? "not-cancelable" : "failed";

@@ -21,11 +21,12 @@ export type BuildRecord = {
   deployment_url: string | null;
   project_name: string | null;
   error: string | null;
+  verified_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-export type BuildPatch = Partial<Pick<BuildRecord, "status" | "deployment_id" | "deployment_url" | "project_name" | "error">>;
+export type BuildPatch = Partial<Pick<BuildRecord, "status" | "deployment_id" | "deployment_url" | "project_name" | "error" | "verified_at">>;
 
 export class BuildInsertRefused extends Error {
   constructor(readonly reason: "inflight" | "daily_cap" | "not_owner", message: string) {
@@ -36,6 +37,8 @@ export class BuildInsertRefused extends Error {
 export interface BuildStore {
   countSince(commitmentId: string, sinceIso: string): Promise<number>;
   latestInflight(commitmentId: string): Promise<BuildRecord | null>;
+  /** The row as the database holds it now (e.g. after a write whose answer was lost). */
+  get(id: string): Promise<BuildRecord | null>;
   insertBuilding(commitmentId: string, buildConfig: Json): Promise<BuildRecord>;
   /**
    * Conditional update: only applies while the row still has the expected
@@ -49,7 +52,8 @@ export interface BuildStore {
 
 export type Expect = AiBuildStatus | { status: AiBuildStatus; deploymentId: string | null };
 
-const COLUMNS = "id, commitment_id, user_id, status, deployment_id, deployment_url, project_name, error, created_at, updated_at";
+export const BUILD_COLUMNS = "id, commitment_id, user_id, status, deployment_id, deployment_url, project_name, error, verified_at, created_at, updated_at";
+const COLUMNS = BUILD_COLUMNS;
 
 export function supabaseBuildStore(admin: SupabaseClient<Database>, userId: string): BuildStore {
   // The generated Database types predate ai_builds' latest shape; keep the
@@ -75,6 +79,11 @@ export function supabaseBuildStore(admin: SupabaseClient<Database>, userId: stri
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (error) throw new Error(`ai_builds read failed: ${error.message}`);
+      return (data as BuildRecord | null) ?? null;
+    },
+    async get(id) {
+      const { data, error } = await table().select(COLUMNS).eq("id", id).eq("user_id", userId).maybeSingle();
       if (error) throw new Error(`ai_builds read failed: ${error.message}`);
       return (data as BuildRecord | null) ?? null;
     },

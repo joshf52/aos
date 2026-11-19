@@ -57,7 +57,7 @@ export default async function AIBuildPage({
       .single()) as unknown as Promise<{ data: { title: string } | null }>,
     (supabase
       .from("ai_builds")
-      .select("id, commitment_id, user_id, status, deployment_id, deployment_url, project_name, error, created_at, updated_at")
+      .select("id, commitment_id, user_id, status, deployment_id, deployment_url, project_name, error, verified_at, created_at, updated_at")
       .eq("commitment_id", commitment.id)
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })

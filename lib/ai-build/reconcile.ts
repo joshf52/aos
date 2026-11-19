@@ -46,24 +46,34 @@ function belongsTo(d: Deployment, row: BuildRecord): boolean {
   return nameOk && tagOk;
 }
 
-/** Does the public address answer, without a login, as this build? */
-async function servesBuild(url: string, buildId: string): Promise<boolean> {
+/**
+ * Does the public address answer, without a login, as this exact deployment
+ * of this build? The app reports Vercel's own VERCEL_DEPLOYMENT_ID, so a
+ * redeploy that inherited the project's AOS_BUILD_ID can't answer for it.
+ */
+async function servesDeployment(url: string, buildId: string, deploymentId: string): Promise<boolean> {
   try {
     const res = await fetch(`${url}/api/health`, { redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(8_000) });
     if (res.status !== 200) return false;
-    const body = (await res.json()) as { build?: unknown };
-    return body.build === buildId;
+    const body = (await res.json()) as { build?: unknown; deployment?: unknown };
+    return body.build === buildId && body.deployment === deploymentId;
   } catch {
     return false;
   }
 }
 
-export type ReconcileDeps = { now?: number; scope?: VercelScope; probe?: (url: string, buildId: string) => Promise<boolean> };
+export type ReconcileDeps = {
+  now?: number;
+  scope?: VercelScope;
+  /** Epoch ms: Vercel calls made by this check finish by then (the cron's budget). */
+  deadline?: number;
+  probe?: (url: string, buildId: string, deploymentId: string) => Promise<boolean>;
+};
 
 export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: ReconcileDeps = {}): Promise<BuildRecord> {
   if (row.status !== "building") return row;
   const now = opts.now ?? Date.now();
-  const probe = opts.probe ?? servesBuild;
+  const probe = opts.probe ?? servesDeployment;
   let current = row;
 
   // Logs carry ids, states and codes only — no provider text.
@@ -89,12 +99,17 @@ export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: 
     // our write of the id) was lost. The deployment carries this build's id,
     // so look for it before deciding anything.
     if (current.project_name) {
-      let found: Deployment | null = null;
+      let found: Deployment | null | "unknown" = null;
       try {
-        found = await findDeploymentForBuild(scope, current.project_name, row.id, Date.parse(row.created_at));
+        found = await findDeploymentForBuild(scope, current.project_name, row.id, Date.parse(row.created_at), opts.deadline);
       } catch (e) {
         console.warn(JSON.stringify({ event: "ai_build_lookup_failed", build: row.id, status: e instanceof VercelError ? e.status : null }));
-        if (age(row.updated_at, now) <= UNCONFIRMED_GIVE_UP_MS) return row;
+        found = "unknown";
+      }
+      // An incomplete search is not absence: keep the row open (the page
+      // keeps polling) until reconcile would give up anyway.
+      if (found === "unknown") {
+        return age(row.created_at, now) > UNCONFIRMED_GIVE_UP_MS ? fail("The deploy couldn't be confirmed.") : row;
       }
       if (found && belongsTo(found, row)) {
         const adopted = await store.update(row.id, { deployment_id: found.id }, { status: "building", deploymentId: null });
@@ -111,7 +126,7 @@ export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: 
 
   let d: Deployment;
   try {
-    d = await getDeployment(scope, current.deployment_id!);
+    d = await getDeployment(scope, current.deployment_id!, opts.deadline);
   } catch (e) {
     if (e instanceof VercelError && e.status === 404) return fail("The deploy is gone.", { status: 404 });
     console.warn(JSON.stringify({ event: "ai_build_status_check_failed", build: row.id, status: e instanceof VercelError ? e.status : null }));
@@ -127,8 +142,12 @@ export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: 
 
   if (d.readyState === "READY") {
     const url = publicUrl(d);
-    if (url && (await probe(url, row.id))) {
-      const saved = await store.update(row.id, { status: "live", deployment_url: url, error: null }, { status: "building", deploymentId: d.id });
+    if (url && (await probe(url, row.id, d.id))) {
+      const saved = await store.update(
+        row.id,
+        { status: "live", deployment_url: url, error: null, verified_at: new Date().toISOString() },
+        { status: "building", deploymentId: d.id },
+      );
       return saved ?? current;
     }
     if (d.aliasError) return fail("The app built, but its address couldn't be assigned.", { aliasError: d.aliasError.code ?? null });
@@ -143,7 +162,7 @@ export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: 
   if (age(row.created_at, now) > DEPLOY_TIMEOUT_MS) {
     // Still building: stop it. READY but never reachable: nothing to cancel;
     // it isn't recorded live, and the cron reports it.
-    const cancel = IN_PROGRESS.includes(d.readyState) ? await cancelDeployment(scope, d.id) : "not-cancelable";
+    const cancel = IN_PROGRESS.includes(d.readyState) ? await cancelDeployment(scope, d.id, opts.deadline) : "not-cancelable";
     return fail(
       cancel === "cancelled" ? "The deploy took too long and was stopped." : "The deploy took too long.",
       { readyState: d.readyState, cancel },

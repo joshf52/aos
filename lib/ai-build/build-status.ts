@@ -1,11 +1,12 @@
 import type { AiBuildStatus } from "@/types/database";
-import { START_STALE_MS, UNCONFIRMED_GIVE_UP_MS } from "./limits";
+import { UNCONFIRMED_GIVE_UP_MS } from "./limits";
 
 export type BuildRow = {
   status: AiBuildStatus;
   deployment_id: string | null;
   deployment_url: string | null;
   error: string | null;
+  verified_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -22,14 +23,16 @@ export type BuildSummary = { status: AiBuildStatus; deploymentUrl: string | null
 export function summarizeBuild(row: BuildRow | null, now: number = Date.now()): BuildSummary | null {
   if (!row) return null;
   const since = (iso: string) => now - Date.parse(iso);
-  if (row.status === "building") {
-    const dead =
-      (!row.deployment_id && since(row.updated_at) > START_STALE_MS) || since(row.created_at) > UNCONFIRMED_GIVE_UP_MS;
-    if (dead) return { status: "failed", deploymentUrl: null, error: "The deploy stopped responding and timed out." };
+  // While the row is reserved the page keeps polling: reconcile may still be
+  // recovering a deployment (and a retry would be refused anyway). Only past
+  // the point where reconcile itself gives up is it shown as failed.
+  if (row.status === "building" && since(row.created_at) > UNCONFIRMED_GIVE_UP_MS) {
+    return { status: "failed", deploymentUrl: null, error: "The deploy stopped responding and timed out." };
   }
-  // Legacy rows (the old pipeline marked builds live on acceptance) can lack
-  // either; a live claim needs both.
-  if (row.status === "live" && (!row.deployment_id || !/^https:\/\/\S+$/.test(row.deployment_url ?? ""))) {
+  // Live needs what the current code records when it verifies an app: the
+  // deployment id, an https address and verified_at. Legacy rows (the old
+  // pipeline marked builds live on acceptance) have no verified_at.
+  if (row.status === "live" && (!row.deployment_id || !row.verified_at || !/^https:\/\/\S+$/.test(row.deployment_url ?? ""))) {
     return { status: "failed", deploymentUrl: null, error: "The deploy finished without an address." };
   }
   return { status: row.status, deploymentUrl: row.deployment_url, error: shownError(row.error) };

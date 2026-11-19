@@ -105,19 +105,25 @@ begin
     end if;
   exception when sqlstate 'P0001' then
     -- The block's increments are rolled back: a refusal costs no quota.
-    v_until := case when sqlerrm = 'rate' then v_wend else v_eod end;
-    -- A client that is over its window AND a daily cap can't retry before
-    -- midnight, so say so rather than point at the window reset.
-    if sqlerrm = 'rate' and exists (
-         select 1 from public.kit_ai_usage
-          where (bucket = 'a:' || p_app || ':' || v_day and n >= p_app_daily_cap)
-             or (bucket = 'all:' || v_day and n >= p_all_daily_cap)) then
-      v_until := v_eod;
-    end if;
-    return pg_catalog.jsonb_build_object(
-      'ok', false,
-      'reason', case when v_until = v_eod then 'daily' else 'rate' end,
-      'retry_after', pg_catalog.ceil(extract(epoch from v_until - pg_catalog.now()))::integer);
+    -- A retry can succeed only once every exhausted bucket has reset, so
+    -- answer with the latest reset among them (the first check to fail may
+    -- not be the last to clear: a window can end after midnight).
+    declare
+      v_window_full boolean := exists (select 1 from public.kit_ai_usage
+        where bucket = 'c:' || p_app || ':' || p_client || ':' || v_win and n >= p_client_cap);
+      v_daily_full boolean := exists (select 1 from public.kit_ai_usage
+        where (bucket = 'a:' || p_app || ':' || v_day and n >= p_app_daily_cap)
+           or (bucket = 'all:' || v_day and n >= p_all_daily_cap));
+    begin
+      v_until := greatest(  -- SQL syntax, not a function: unaffected by search_path
+        case when v_window_full then v_wend end,
+        case when v_daily_full then v_eod end,
+        case when not v_window_full and not v_daily_full then v_wend end);
+      return pg_catalog.jsonb_build_object(
+        'ok', false,
+        'reason', case when v_daily_full then 'daily' else 'rate' end,
+        'retry_after', pg_catalog.ceil(extract(epoch from v_until - pg_catalog.now()))::integer);
+    end;
   end;
 
   -- Expired buckets are dead weight; sweep a few now and then, skipping any

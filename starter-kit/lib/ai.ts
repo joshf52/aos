@@ -47,7 +47,10 @@ export const LIMITS = {
   perIpPerWindow: intFromEnv("AI_RATE_LIMIT_PER_IP", 8, 1, 1000),
   windowMs: intFromEnv("AI_RATE_LIMIT_WINDOW_SECONDS", 600, 10, 86400) * 1000,
   dailyRequestsPerInstance: intFromEnv("AI_DAILY_REQUEST_CAP", 500, 1, 100000),
-  timeoutMs: intFromEnv("AI_TIMEOUT_SECONDS", 45, 5, 120) * 1000,
+  // One attempt, no SDK retries: the route's maxDuration is 60 s, and a retry
+  // after a long first attempt would be killed mid-flight with no JSON reply.
+  // Upstream 429/529 go back to the browser with retry-after instead.
+  timeoutMs: intFromEnv("AI_TIMEOUT_SECONDS", 50, 5, 55) * 1000,
 } as const;
 
 // ---- rate limiting (in-memory, per instance) --------------------------------
@@ -92,17 +95,41 @@ export type DraftResult =
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
   // Constructed lazily so a build without ANTHROPIC_API_KEY still succeeds.
-  client ??= new Anthropic({ timeout: LIMITS.timeoutMs, maxRetries: 2 });
+  client ??= new Anthropic({ timeout: LIMITS.timeoutMs, maxRetries: 0 });
   return client;
 }
 
-function estimateCostUsd(model: string, usage: { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null }): number {
+type UsageLike = {
+  model?: string;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+};
+
+function attemptCost(model: string, u: UsageLike): number {
   const p = isKitModel(model) ? MODEL_PRICING[model] : MODEL_PRICING[DEFAULT_MODEL];
-  const cost =
-    ((usage.input_tokens ?? 0) * p.input +
-      (usage.output_tokens ?? 0) * p.output +
-      (usage.cache_read_input_tokens ?? 0) * p.cacheRead) /
-    1_000_000;
+  return (
+    ((u.input_tokens ?? 0) * p.input +
+      (u.output_tokens ?? 0) * p.output +
+      (u.cache_read_input_tokens ?? 0) * p.cacheRead +
+      // 5-minute cache writes are 1.25x base input.
+      (u.cache_creation_input_tokens ?? 0) * p.input * 1.25) /
+    1_000_000
+  );
+}
+
+/**
+ * Top-level usage covers only the attempt that produced the reply. With a
+ * server-side fallback, usage.iterations lists every attempt (a declined one
+ * included), each with its own model — sum those. This is an upper bound: an
+ * attempt declined before any output may not be billed.
+ */
+function estimateCostUsd(servedModel: string, usage: UsageLike & { iterations?: UsageLike[] | null }): number {
+  const attempts = (usage.iterations ?? []).filter((i) => typeof i.input_tokens === "number");
+  const cost = attempts.length
+    ? attempts.reduce((sum, a) => sum + attemptCost(a.model ?? servedModel, a), 0)
+    : attemptCost(servedModel, usage);
   return Math.round(cost * 1e6) / 1e6;
 }
 
@@ -110,6 +137,9 @@ function estimateCostUsd(model: string, usage: { input_tokens?: number | null; o
 export async function draft(system: string, prompt: string): Promise<DraftResult> {
   const model = resolveModel();
   const started = Date.now();
+  // Fallback entries must differ from the requested model (the API rejects a
+  // duplicate), so an AI_MODEL override to the fallback model runs without one.
+  const fallback = model === FALLBACK_MODEL ? null : FALLBACK_MODEL;
   try {
     const msg = await getClient().beta.messages.create({
       model,
@@ -121,8 +151,7 @@ export async function draft(system: string, prompt: string): Promise<DraftResult
       messages: [{ role: "user", content: prompt }],
       // On a safety decline the API re-runs the request on the fallback model
       // inside the same call (billed at that model's own rates).
-      betas: ["server-side-fallback-2026-06-01"],
-      fallbacks: [{ model: FALLBACK_MODEL }],
+      ...(fallback ? { betas: ["server-side-fallback-2026-06-01"], fallbacks: [{ model: fallback }] } : {}),
     });
 
     const text = msg.content
@@ -140,7 +169,8 @@ export async function draft(system: string, prompt: string): Promise<DraftResult
         input_tokens: msg.usage.input_tokens,
         output_tokens: msg.usage.output_tokens,
         cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
-        est_cost_usd: estimateCostUsd(msg.model, msg.usage),
+        attempts: msg.usage.iterations?.length ?? 1,
+        est_cost_usd: estimateCostUsd(msg.model, msg.usage as UsageLike & { iterations?: UsageLike[] | null }),
         ms: Date.now() - started,
       }),
     );
@@ -162,6 +192,10 @@ export async function draft(system: string, prompt: string): Promise<DraftResult
     if (e instanceof Anthropic.APIConnectionTimeoutError || e instanceof Anthropic.APIConnectionError) {
       console.warn(JSON.stringify({ event: "ai_draft_error", kind: "connection", ms }));
       return { ok: false, status: 504, error: "The drafting service didn't respond. Try again." };
+    }
+    if (e instanceof Anthropic.APIError && (e.status === 529 || e.status === 503)) {
+      console.warn(JSON.stringify({ event: "ai_draft_error", kind: "overloaded", status: e.status, ms }));
+      return { ok: false, status: 503, error: "Busy right now. Try again in a minute.", retryAfterSeconds: 30 };
     }
     if (e instanceof Anthropic.APIError) {
       // 400/401/403/404 are configuration problems (bad key, retired model,

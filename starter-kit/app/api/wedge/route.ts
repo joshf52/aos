@@ -12,7 +12,9 @@ function clientKey(req: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { input } = (await req.json().catch(() => ({}))) as { input?: unknown };
+  // A body of `null`, a number or an array parses fine but has no `input`.
+  const body: unknown = await req.json().catch(() => null);
+  const input = body !== null && typeof body === "object" ? (body as { input?: unknown }).input : undefined;
   if (typeof input !== "string" || input.trim().length === 0) {
     return NextResponse.json({ error: "Empty input." }, { status: 400 });
   }

@@ -140,6 +140,7 @@ export function ArchitectureContent({
               Rewrite the {editing}
             </div>
             <textarea
+              aria-label={`Rewrite the ${editing}`}
               autoFocus
               rows={3}
               value={draft}
@@ -194,7 +195,11 @@ export function ArchitectureContent({
           <p className="font-serif italic text-[15px] text-aos-secondary mb-5 text-center text-balance">
             Hold to begin. A live preview URL arrives within 24 hours.
           </p>
+          {/* HoldButton latches after one completed hold. Re-key it so it comes
+              back usable after a hold dropped during an edit, or a failed
+              beginBuild resets `building`. */}
           <HoldButton
+            key={editing ? "editing" : building ? "building" : "ready"}
             label={building ? "Sending to the build queue…" : "Begin build"}
             holdLabel="Hold…"
             duration={1200}

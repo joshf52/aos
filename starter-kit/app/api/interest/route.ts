@@ -23,8 +23,12 @@ export async function POST(req: NextRequest) {
     email: email.toLowerCase().trim(),
     opportunity_id: kit.meta.opportunityId,
   });
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 502 });
+  // A repeat signup (unique violation) answers exactly like a new one, so the
+  // public endpoint can't be used to test whether an email is on the list.
+  // Other errors stay generic for the same reason.
+  if (error && error.code !== "23505") {
+    console.error("interest insert failed", error.code);
+    return NextResponse.json({ error: "Could not save your email. Try again." }, { status: 502 });
   }
   return NextResponse.json({ ok: true });
 }

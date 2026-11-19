@@ -44,14 +44,28 @@ select
                      and i.indisunique and i.indisvalid
                      and pg_get_indexdef(i.indexrelid) like '%(commitment_id, user_id)%'
                      and pg_get_indexdef(i.indexrelid) like '%status = ''building''%')
-     and exists (select 1 from pg_trigger where tgrelid = (select oid from t)
-                   and tgname = 'ai_builds_before_insert' and not tgisinternal and tgenabled in ('O', 'A'))
-     and exists (select 1 from pg_trigger where tgrelid = (select oid from t)
-                   and tgname = 'ai_builds_before_update' and not tgisinternal and tgenabled in ('O', 'A'))
+     -- Triggers: enabled, BEFORE ... FOR EACH ROW on the right event (tgtype
+     -- 7 = row|before|insert, 19 = row|before|update), bound to the right
+     -- function, and that function still contains its rules.
+     and exists (select 1 from pg_trigger g join pg_proc f on f.oid = g.tgfoid
+                   where g.tgrelid = (select oid from t) and g.tgname = 'ai_builds_before_insert'
+                     and not g.tgisinternal and g.tgenabled in ('O', 'A') and g.tgtype = 7
+                     and g.tgfoid = to_regprocedure('public.ai_builds_before_insert()')
+                     and f.prosrc like '%pg_advisory_xact_lock%' and f.prosrc like '%ai_builds_not_owner%'
+                     and f.prosrc like '%ai_builds_daily_cap%' and f.prosrc like '%ai_builds_bad_initial_status%')
+     and exists (select 1 from pg_trigger g join pg_proc f on f.oid = g.tgfoid
+                   where g.tgrelid = (select oid from t) and g.tgname = 'ai_builds_before_update'
+                     and not g.tgisinternal and g.tgenabled in ('O', 'A') and g.tgtype = 19
+                     and g.tgfoid = to_regprocedure('public.ai_builds_before_update()')
+                     and f.prosrc like '%ai_builds_immutable%' and f.prosrc like '%ai_builds_bad_transition%')
+     and exists (select 1 from pg_constraint where conrelid = (select oid from t)
+                   and conname = 'ai_builds_live_has_deployment' and contype = 'c'
+                   and pg_get_constraintdef(oid) like '%verified_at IS NOT NULL%'
+                   and pg_get_constraintdef(oid) like '%deployment_id%'
+                   and pg_get_constraintdef(oid) like '%deployment_url%')
+     and (select rolbypassrls from pg_roles where rolname = 'service_role')
      and exists (select 1 from pg_constraint where conrelid = (select oid from t)
                    and conname = 'ai_builds_commitment_id_fkey' and confdeltype = 'a')
-     and exists (select 1 from pg_constraint where conrelid = (select oid from t)
-                   and conname = 'ai_builds_live_has_deployment' and contype = 'c')
      and has_table_privilege('authenticated', 'public.ai_builds', 'SELECT')
      and not has_table_privilege('authenticated', 'public.ai_builds', 'INSERT')
      and not has_table_privilege('authenticated', 'public.ai_builds', 'UPDATE')

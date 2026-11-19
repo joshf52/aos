@@ -26,18 +26,39 @@ alter table public.ai_builds
   add constraint ai_builds_commitment_id_fkey
   foreign key (commitment_id) references public.commitments(id) on delete cascade;
 
--- Put quarantined legacy rows back (009 moved them out), where their
--- commitment still exists. Rows 009 marked 'failed' as superseded duplicates
--- stay failed: their deployments were never tracked to an outcome.
+-- Put back what 009 moved into the quarantine:
+--   * whole rows (attached to another user's commitment), where both the
+--     commitment and the user still exist;
+--   * the original error text of legacy rows.
+-- Anything that can't be restored (its user or commitment was deleted since)
+-- stays in the quarantine table, which is then kept. Rows 009 marked 'failed'
+-- as superseded duplicates stay failed: their deployments were never tracked.
+-- The verified_at column is kept (unused by the old shape; harmless).
 do $$
 begin
   if to_regclass('public.ai_builds_quarantine') is not null then
+    with restorable as (
+      delete from public.ai_builds_quarantine q
+      where q.reason like 'commitment not owned%'
+        and exists (select 1 from public.commitments c where c.id = (q.row_data->>'commitment_id')::uuid)
+        and exists (select 1 from auth.users u where u.id = (q.row_data->>'user_id')::uuid)
+      returning q.row_data
+    )
     insert into public.ai_builds
-      select (pg_catalog.jsonb_populate_record(null::public.ai_builds, q.row_data)).*
-      from public.ai_builds_quarantine q
-      where exists (select 1 from public.commitments c where c.id = (q.row_data->>'commitment_id')::uuid)
+      select (pg_catalog.jsonb_populate_record(null::public.ai_builds, r.row_data)).* from restorable r
       on conflict (id) do nothing;
-    drop table public.ai_builds_quarantine;
+
+    update public.ai_builds b
+      set error = q.row_data->>'error'
+      from public.ai_builds_quarantine q
+      where q.reason like 'legacy error text%' and b.id = (q.row_data->>'id')::uuid;
+    delete from public.ai_builds_quarantine q
+      where q.reason like 'legacy error text%'
+        and exists (select 1 from public.ai_builds b where b.id = (q.row_data->>'id')::uuid);
+
+    if not exists (select 1 from public.ai_builds_quarantine) then
+      drop table public.ai_builds_quarantine;
+    end if;
   end if;
 end $$;
 

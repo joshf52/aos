@@ -90,6 +90,46 @@ update public.ai_builds b
                    and n.status = 'building'
                    and (n.created_at, n.id) > (b.created_at, b.id));
 
+-- (c) Error text written by the old pipeline is raw provider output, and the
+--     row's owner can read it through the API. The original text moves to
+--     the quarantine (no API access); the row keeps a generic message. The
+--     list below is every message the current code writes — keep it in sync
+--     with KNOWN_ERRORS in lib/ai-build/build-status.ts.
+insert into public.ai_builds_quarantine (reason, row_data)
+  select 'legacy error text (replaced on the row)', pg_catalog.jsonb_build_object('id', b.id, 'error', b.error)
+  from public.ai_builds b
+  where b.error is not null and b.error not in (
+    'The deploy couldn''t start. Try again in a moment.',
+    'The deploy failed. Try again, or change the plan first.',
+    'The deploy was cancelled.',
+    'The deploy took too long and was stopped.',
+    'The deploy took too long.',
+    'The deploy couldn''t be confirmed.',
+    'The deploy is gone.',
+    'The deploy couldn''t be matched to this build.',
+    'The app built, but its address couldn''t be assigned.',
+    'The build stopped before the deploy started.',
+    'Superseded by a newer build.');
+update public.ai_builds b
+  set error = 'The deploy failed. Try again, or change the plan first.'
+  where b.error is not null and b.error not in (
+    'The deploy couldn''t start. Try again in a moment.',
+    'The deploy failed. Try again, or change the plan first.',
+    'The deploy was cancelled.',
+    'The deploy took too long and was stopped.',
+    'The deploy took too long.',
+    'The deploy couldn''t be confirmed.',
+    'The deploy is gone.',
+    'The deploy couldn''t be matched to this build.',
+    'The app built, but its address couldn''t be assigned.',
+    'The build stopped before the deploy started.',
+    'Superseded by a newer build.');
+
+-- When the server confirmed the app answered at its public address as this
+-- deployment. Only rows written by the current code have it, so a legacy
+-- "live" row (marked live on mere acceptance) is never shown as live.
+alter table public.ai_builds add column if not exists verified_at timestamptz;
+
 -- At most one in-flight build per commitment owner: a second tab or a retry
 -- can't start a second (paid) deploy. store.ts maps the 23505 to a refusal.
 -- Rebuilt every run so an index from an earlier draft can't survive.
@@ -104,15 +144,17 @@ alter table public.ai_builds
   foreign key (commitment_id) references public.commitments(id);
 
 -- "live" means Vercel reported READY and the app answered at its public
--- address; a row can't claim it without a deployment id and an https URL.
+-- address as that deployment; a row can't claim it without a deployment id,
+-- an https URL with a host, and verified_at.
 -- NOT VALID: legacy rows from the old pipeline (which marked builds live on
 -- acceptance) are kept as they are; every new insert and update is checked.
 -- The status page also refuses to show a row as live without both.
 alter table public.ai_builds drop constraint if exists ai_builds_live_has_deployment;
 alter table public.ai_builds
   add constraint ai_builds_live_has_deployment
-  check (status <> 'live' or (pg_catalog.btrim(coalesce(deployment_id, '')) <> ''
-                              and coalesce(deployment_url, '') ~ '^https://[^[:space:]]+$')) not valid;
+  check (status <> 'live' or (coalesce(deployment_id, '') ~ '^[A-Za-z0-9_-]{4,128}$'
+                              and coalesce(deployment_url, '') ~ '^https://[a-z0-9-]+(\.[a-z0-9-]+)+(/[^[:space:]]*)?$'
+                              and verified_at is not null)) not valid;
 
 -- Insert rules, race-free:
 --   * a new row starts as 'pending' or 'building';

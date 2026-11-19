@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +48,9 @@ export function HoldButton({
   }
 
   function start() {
-    if (completedRef.current) return;
+    // A second start (key auto-repeat, touch + emulated mouse) would orphan the
+    // first interval and make the hold uncancellable.
+    if (completedRef.current || intervalRef.current !== null) return;
     setHolding(true);
     halfPulsedRef.current = false;
     const startTime = Date.now();
@@ -62,6 +64,9 @@ export function HoldButton({
       if (p >= 1) {
         completedRef.current = true;
         clearTimer();
+        // cancel() is a no-op once completed, so release the hold label here or
+        // the caller's post-completion label (e.g. "Sending…") never shows.
+        setHolding(false);
         vibrate([40, 30, 80]);
         onComplete();
       }
@@ -76,6 +81,19 @@ export function HoldButton({
     setProgress(0);
   }
 
+  // Keyboard users hold Space or Enter, mirroring press-and-hold with a pointer.
+  function onKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key !== " " && e.key !== "Enter") return;
+    e.preventDefault();
+    if (!e.repeat) start();
+  }
+
+  function onKeyUp(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key !== " " && e.key !== "Enter") return;
+    e.preventDefault();
+    cancel();
+  }
+
   const showHoldLabel = holding && progress >= 0.4;
 
   return (
@@ -87,6 +105,9 @@ export function HoldButton({
       onTouchStart={start}
       onTouchEnd={cancel}
       onPointerCancel={cancel}
+      onKeyDown={onKeyDown}
+      onKeyUp={onKeyUp}
+      onBlur={cancel}
       whileTap={{ scale: 0.99 }}
       aria-label={label}
       className={cn(

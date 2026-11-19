@@ -12,6 +12,11 @@ async function updateLensAnswer(
   value: string,
 ): Promise<void> {
   "use server";
+  // Server-action arguments arrive from the client unchecked; the TS types
+  // above are not enforced at runtime.
+  if (field !== 1 && field !== 3 && field !== 4) return;
+  if (typeof value !== "string" || value.trim().length === 0) return;
+
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;

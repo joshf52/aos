@@ -1,7 +1,8 @@
--- Schema for a kit-side Supabase project. Materialized once when a build is
--- deployed; the compiler does not create this for Phase A.
+-- Schema for the kit-side Supabase project that every generated app shares.
+-- Apply once (idempotent). Grants are explicit: Supabase no longer grants new
+-- tables to the API roles automatically (2026).
 
-create table if not exists interested_users (
+create table if not exists public.interested_users (
   id uuid primary key default gen_random_uuid(),
   email text not null,
   opportunity_id uuid,
@@ -9,34 +10,32 @@ create table if not exists interested_users (
 );
 
 create unique index if not exists interested_users_email_per_build
-  on interested_users (email);
+  on public.interested_users (email);
 
 -- The kit writes with the public anon key, so without RLS any visitor could
 -- read or rewrite every signup. Allow anonymous inserts only; reads go
 -- through the dashboard / service role.
-alter table interested_users enable row level security;
+alter table public.interested_users enable row level security;
+revoke all on public.interested_users from anon, authenticated;
+grant insert on public.interested_users to anon;
 
-drop policy if exists "Anyone can join the interest list" on interested_users;
+drop policy if exists "Anyone can join the interest list" on public.interested_users;
 create policy "Anyone can join the interest list"
-  on interested_users for insert
+  on public.interested_users for insert
   to anon
   with check (true);
 
 -- ---------------------------------------------------------------------------
 -- Global request limiter for the apps' Claude calls.
 --
--- Every generated app shares this project, and serverless instances share no
--- memory, so per-instance counters can't bound spend. kit_admit_ai() is one
--- atomic check across every instance of every app: per client per window, per
--- app per UTC day, and all apps per UTC day. A refused call changes no
--- counter. The app calls it before each Claude request and refuses to call
--- Claude if it can't get an answer (AI_REQUIRE_GLOBAL_LIMIT=1, set by AOS).
---
--- The function is callable with the public anon key, and the caps are
--- arguments, because the app's server is the only thing that spends money:
--- someone calling it directly can only use up counters (making apps refuse
--- requests), never cause a Claude call. The hard spend ceiling is the
--- Anthropic workspace spend limit on the key, not this table.
+-- Serverless instances share no memory, so per-instance counters can't bound
+-- spend. kit_admit_ai() is one atomic check across every instance of every
+-- app: per client per window, per app per UTC day, and all apps per UTC day.
+-- A refused call changes no counter. The apps call it with a server-only
+-- secret key before each Claude request and refuse to call Claude if it
+-- can't answer (AI_REQUIRE_GLOBAL_LIMIT=1, set by AOS). It is not callable
+-- with the public key, so nobody outside the apps can use up the counters.
+-- The hard spend ceiling is the Anthropic workspace spend limit on the key.
 
 create table if not exists public.kit_ai_usage (
   bucket     text primary key,
@@ -44,8 +43,10 @@ create table if not exists public.kit_ai_usage (
   expires_at timestamptz not null
 );
 alter table public.kit_ai_usage enable row level security;
--- No policies and no grants: only kit_admit_ai (SECURITY DEFINER) touches it.
-revoke all on public.kit_ai_usage from anon, authenticated;
+-- Only kit_admit_ai (SECURITY DEFINER) writes it; the service role may read
+-- it (operator checks, the AOS end-to-end test). No API access otherwise.
+revoke all on public.kit_ai_usage from anon, authenticated, service_role;
+grant select on public.kit_ai_usage to service_role;
 
 create or replace function public.kit_admit_ai(
   p_app text,
@@ -65,8 +66,12 @@ declare
   v_eod   timestamptz := (pg_catalog.date_trunc('day', pg_catalog.now() at time zone 'utc') + interval '1 day') at time zone 'utc';
   v_wend  timestamptz;
   v_n     integer;
+  v_until timestamptz;
 begin
-  if p_app !~ '^[a-z0-9-]{1,64}$' or p_client !~ '^[a-f0-9]{16,64}$'
+  -- NULLs would make every comparison below unknown, so reject them first.
+  if p_app is null or p_client is null or p_client_cap is null or p_window_seconds is null
+     or p_app_daily_cap is null or p_all_daily_cap is null
+     or p_app !~ '^[a-z0-9-]{1,64}$' or p_client !~ '^[a-f0-9]{16,64}$'
      or p_client_cap not between 1 and 100000 or p_window_seconds not between 10 and 86400
      or p_app_daily_cap not between 1 and 1000000 or p_all_daily_cap not between 1 and 10000000 then
     raise exception 'kit_admit_ai: invalid arguments' using errcode = '22023';
@@ -100,20 +105,32 @@ begin
     end if;
   exception when sqlstate 'P0001' then
     -- The block's increments are rolled back: a refusal costs no quota.
+    v_until := case when sqlerrm = 'rate' then v_wend else v_eod end;
+    -- A client that is over its window AND a daily cap can't retry before
+    -- midnight, so say so rather than point at the window reset.
+    if sqlerrm = 'rate' and exists (
+         select 1 from public.kit_ai_usage
+          where (bucket = 'a:' || p_app || ':' || v_day and n >= p_app_daily_cap)
+             or (bucket = 'all:' || v_day and n >= p_all_daily_cap)) then
+      v_until := v_eod;
+    end if;
     return pg_catalog.jsonb_build_object(
       'ok', false,
-      'reason', sqlerrm,
-      'retry_after', pg_catalog.ceil(extract(epoch from (case when sqlerrm = 'rate' then v_wend else v_eod end) - pg_catalog.now()))::integer);
+      'reason', case when v_until = v_eod then 'daily' else 'rate' end,
+      'retry_after', pg_catalog.ceil(extract(epoch from v_until - pg_catalog.now()))::integer);
   end;
 
-  -- Expired buckets are dead weight; sweep a few now and then.
+  -- Expired buckets are dead weight; sweep a few now and then, skipping any
+  -- row another request holds (so the sweep can never wait on admission).
   if pg_catalog.random() < 0.02 then
     delete from public.kit_ai_usage
-      where bucket in (select bucket from public.kit_ai_usage where expires_at < pg_catalog.now() limit 500);
+      where bucket in (select bucket from public.kit_ai_usage
+                        where expires_at < pg_catalog.now()
+                        limit 500 for update skip locked);
   end if;
   return pg_catalog.jsonb_build_object('ok', true);
 end;
 $$;
 
 revoke all on function public.kit_admit_ai(text, text, integer, integer, integer, integer) from public, anon, authenticated;
-grant execute on function public.kit_admit_ai(text, text, integer, integer, integer, integer) to anon, service_role;
+grant execute on function public.kit_admit_ai(text, text, integer, integer, integer, integer) to service_role;

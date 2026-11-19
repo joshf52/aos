@@ -42,6 +42,11 @@ export type KitConfig = {
   meta: {
     opportunityId: string;
     opportunitySlug: string;
+    // Generated builds carry these too (lib/ai-build/build-config.ts); the
+    // limiter keys its per-app bucket on commitmentId.
+    commitmentId: string;
+    userId: string;
+    createdAt: string;
   };
 };
 
@@ -89,5 +94,8 @@ export const config: KitConfig = {
   meta: {
     opportunityId: "00000000-0000-0000-0000-000000000000",
     opportunitySlug: "invoice-dispute-assistant",
+    commitmentId: "00000000-0000-0000-0000-000000000000",
+    userId: "00000000-0000-0000-0000-000000000000",
+    createdAt: "2026-01-01T00:00:00.000Z",
   },
 };

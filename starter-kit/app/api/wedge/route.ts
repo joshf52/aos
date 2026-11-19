@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { config as kit } from "@/kit.config";
-import { admit, admitGlobal, draft, LIMITS, type Admission } from "@/lib/ai";
+import { admit, admitGlobal, draft, globalLimiterConfigured, LIMITS, type Admission } from "@/lib/ai";
 
 export const runtime = "nodejs";
 // Room for the limiter (≤5 s) and one model call (LIMITS.timeoutMs, ≤55 s; no SDK retries).
@@ -45,13 +45,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Validation first, so malformed requests don't spend the visitor's quota.
-  // The per-instance check is cheap and keeps one instance from hammering the
-  // global limiter; the global one (shared across every instance) decides.
+  // One limiter decides: the global one (shared by every instance) when it is
+  // configured or required, otherwise the per-instance one (local dev). Using
+  // both would let a global refusal or outage burn local quota.
   const key = clientKey(req);
-  const local = admit(key);
-  if (!local.ok) return refused(local);
-  const global = await admitGlobal(appId, key);
-  if (global && !global.ok) return refused(global);
+  if (globalLimiterConfigured() || LIMITS.requireGlobalLimit) {
+    const global = await admitGlobal(appId, key);
+    if (!global || !global.ok) return refused(global ?? { ok: false, reason: "unavailable", retryAfterSeconds: 60 });
+  } else {
+    const local = admit(key);
+    if (!local.ok) return refused(local);
+  }
 
   const prompt = kit.workflow.promptTemplate.replace("{input}", input);
   const result = await draft(kit.workflow.systemPrompt, prompt);

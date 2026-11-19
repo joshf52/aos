@@ -72,21 +72,30 @@ export type Admission =
 
 let sb: SupabaseClient | null = null;
 
+/** True when this app has what the global limiter needs. */
+export function globalLimiterConfigured(): boolean {
+  return !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.KIT_SUPABASE_SECRET_KEY;
+}
+
 /**
  * Asks kit_admit_ai whether this request may call Claude. Returns null when
  * the limiter isn't configured and isn't required (local dev). When it is
  * required (every AOS-generated app), any failure to get an answer refuses
  * the request: fail closed, because the alternative is unbounded spend.
+ * The limiter is callable only with the kit project's secret key
+ * (KIT_SUPABASE_SECRET_KEY, server-only), never the public one.
  */
 export async function admitGlobal(appId: string, clientKey: string): Promise<Admission | null> {
   const unavailable: Admission = { ok: false, reason: "unavailable", retryAfterSeconds: 60 };
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return LIMITS.requireGlobalLimit ? unavailable : null;
-  sb ??= createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  if (!globalLimiterConfigured()) return LIMITS.requireGlobalLimit ? unavailable : null;
   // Raw IPs are never stored: the bucket key is a hash scoped to this app.
   const client = crypto.createHash("sha256").update(`${appId}:${clientKey}`).digest("hex").slice(0, 32);
   try {
+    // Inside the try: a malformed URL makes createClient throw, which must
+    // still end in the fail-closed answer, not an unhandled 500.
+    sb ??= createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.KIT_SUPABASE_SECRET_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
     const { data, error } = await sb
       .rpc("kit_admit_ai", {
         p_app: appId,
@@ -111,8 +120,9 @@ export async function admitGlobal(appId: string, clientKey: string): Promise<Adm
   }
 }
 
-// Local: in-memory, per server instance. A first line only — instances share
-// no memory, so these numbers bound one instance, not the app.
+// Local: in-memory, per server instance — used only when no global limiter is
+// configured (local dev). Instances share no memory, so these numbers bound
+// one instance, not the app.
 
 const hits = new Map<string, number[]>();
 let day = new Date().toISOString().slice(0, 10);

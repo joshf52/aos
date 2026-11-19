@@ -26,6 +26,21 @@ alter table public.ai_builds
   add constraint ai_builds_commitment_id_fkey
   foreign key (commitment_id) references public.commitments(id) on delete cascade;
 
+-- Put quarantined legacy rows back (009 moved them out), where their
+-- commitment still exists. Rows 009 marked 'failed' as superseded duplicates
+-- stay failed: their deployments were never tracked to an outcome.
+do $$
+begin
+  if to_regclass('public.ai_builds_quarantine') is not null then
+    insert into public.ai_builds
+      select (pg_catalog.jsonb_populate_record(null::public.ai_builds, q.row_data)).*
+      from public.ai_builds_quarantine q
+      where exists (select 1 from public.commitments c where c.id = (q.row_data->>'commitment_id')::uuid)
+      on conflict (id) do nothing;
+    drop table public.ai_builds_quarantine;
+  end if;
+end $$;
+
 drop policy if exists "Users read their own ai_builds" on public.ai_builds;
 drop policy if exists "Users create builds for their own commitments" on public.ai_builds;
 drop policy if exists "Users update their own ai_builds" on public.ai_builds;

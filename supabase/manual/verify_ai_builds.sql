@@ -10,19 +10,20 @@
 --   * state = 'current'     -> 009 is applied: users read only, the service
 --                              role writes, every trigger and constraint is on.
 --   * anything else         -> inspect the columns; don't apply blind.
--- Then check the second result before applying 009:
---   * commitments_with_duplicate_inflight_builds > 0 -> 009's unique index can't
---     be created (the whole file rolls back). Mark the older duplicates 'failed'.
---   * rows_violating_ownership > 0 -> build rows attached to a commitment their
---     user_id doesn't own (possible only under the old policy). 009 keeps them
---     (they no longer count toward anyone's cap); review and delete them as
---     the project owner, or they block deleting the commitment owner's account.
+-- The second result, before applying 009, says what 009 will do to legacy rows
+-- (no manual cleanup is needed):
+--   * commitments_with_duplicate_inflight_builds > 0 -> 009 marks all but the
+--     newest 'building' row per (commitment, user) failed ("Superseded").
+--   * rows_violating_ownership > 0 -> rows attached to a commitment their
+--     user_id doesn't own (possible only under the old policy). 009 moves them
+--     into ai_builds_quarantine (no API access); after 009 this reads 0 and
+--     quarantined_rows says how many moved.
 --   * live_rows_without_deployment > 0 -> rows the old pipeline marked 'live'
---     when Vercel merely accepted a deploy. 009 keeps them (its live check is
---     NOT VALID); they may never have reached READY.
+--     when Vercel merely accepted a deploy. 009 keeps them as history (its
+--     live check is NOT VALID); the status page won't show them as live.
 
 with p as (
-  select policyname, cmd, roles, with_check
+  select policyname, cmd, roles, qual, with_check
   from pg_policies
   where schemaname = 'public' and tablename = 'ai_builds'
 ),
@@ -33,7 +34,10 @@ select
     when (select oid from t) is null then 'absent'
     when exists (select 1 from p where policyname = 'Users manage their own ai_builds') then 'old 008'
     when (select count(*) from p) = 1
-     and exists (select 1 from p where policyname = 'Users read their own ai_builds' and cmd = 'SELECT')
+     and exists (select 1 from p where policyname = 'Users read their own ai_builds' and cmd = 'SELECT'
+                   and roles = '{authenticated}'::name[]
+                   and pg_catalog.regexp_replace(qual, '\s', '', 'g') = '((SELECTauth.uid()ASuid)=user_id)')
+     and to_regclass('public.ai_builds_quarantine') is not null
      and (select relrowsecurity from pg_class where oid = (select oid from t))
      and exists (select 1 from pg_index i
                    where i.indexrelid = to_regclass('public.ai_builds_one_inflight_per_commitment')
@@ -57,6 +61,8 @@ select
      and not has_table_privilege('anon', 'public.ai_builds', 'SELECT')
      and not has_any_column_privilege('anon', 'public.ai_builds', 'SELECT')
      and not has_table_privilege('service_role', 'public.ai_builds', 'DELETE')
+     and has_table_privilege('service_role', 'public.ai_builds', 'SELECT')
+     and has_table_privilege('service_role', 'public.commitments', 'SELECT')
      and has_table_privilege('service_role', 'public.ai_builds', 'INSERT')
      and has_table_privilege('service_role', 'public.ai_builds', 'UPDATE')
       then 'current'
@@ -108,4 +114,7 @@ select
          'select count(*) as n from public.ai_builds
             where status = ''live'' and (deployment_id is null or deployment_url is null)',
          false, true, '')))[1]::text::int
-  end as live_rows_without_deployment;
+  end as live_rows_without_deployment,
+  case when to_regclass('public.ai_builds_quarantine') is null then null
+       else (xpath('/row/n/text()', query_to_xml('select count(*) as n from public.ai_builds_quarantine', false, true, '')))[1]::text::int
+  end as quarantined_rows;

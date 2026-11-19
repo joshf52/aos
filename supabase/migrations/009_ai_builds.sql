@@ -7,8 +7,10 @@
 -- that version is live on the hosted database. Running this file there
 -- upgrades it in place and keeps every row; on a fresh database it creates
 -- everything; re-running it is a no-op. One transaction, so a failure leaves
--- nothing half-done. supabase/manual/verify_ai_builds.sql reports the state
--- before and after; supabase/manual/rollback_009_ai_builds.sql undoes it.
+-- nothing half-done. Two kinds of legacy row the new rules can't hold are
+-- handled in place (see "Legacy rows" below): nothing is lost.
+-- supabase/manual/verify_ai_builds.sql reports the state before and after;
+-- supabase/manual/rollback_009_ai_builds.sql undoes it.
 --
 -- Who writes what:
 --   * Signed-in users can only READ their own rows. They can't insert,
@@ -47,10 +49,49 @@ create table if not exists public.ai_builds (
 create index if not exists ai_builds_commitment_idx on public.ai_builds (commitment_id);
 create index if not exists ai_builds_user_idx       on public.ai_builds (user_id);
 
+-- The insert trigger below reads commitments as the service role. Supabase
+-- stopped granting new tables to the API roles automatically (2026), so say
+-- it explicitly rather than rely on how the project was created.
+grant select on public.commitments to service_role;
+
+-- Legacy rows the old 008 policy allowed but this schema can't hold.
+--
+-- (a) Rows attached to a commitment their user_id doesn't own. They would
+--     block deleting the commitment owner's account (the FK below is NO
+--     ACTION) and they never describe a real build of that commitment. They
+--     are moved, whole, into ai_builds_quarantine (no API access) — kept as
+--     history, out of the live table.
+create table if not exists public.ai_builds_quarantine (
+  quarantined_at timestamptz not null default now(),
+  reason         text not null,
+  row_data       jsonb not null
+);
+alter table public.ai_builds_quarantine enable row level security;
+revoke all on public.ai_builds_quarantine from anon, authenticated, service_role;
+
+insert into public.ai_builds_quarantine (reason, row_data)
+  select 'commitment not owned by the row''s user (written under the old 008 policy)', pg_catalog.to_jsonb(b)
+  from public.ai_builds b
+  where not exists (select 1 from public.commitments c
+                     where c.id = b.commitment_id and c.user_id = b.user_id);
+delete from public.ai_builds b
+  where not exists (select 1 from public.commitments c
+                     where c.id = b.commitment_id and c.user_id = b.user_id);
+
+-- (b) More than one "building" row for one (commitment, user) — a retry or a
+--     race under the old code. The unique index below can't be built over
+--     them, so every one but the newest is marked failed (rows and their
+--     deployment ids are kept; the reconciler can still look them up).
+update public.ai_builds b
+  set status = 'failed', error = 'Superseded by a newer build.'
+  where b.status = 'building'
+    and exists (select 1 from public.ai_builds n
+                 where n.commitment_id = b.commitment_id and n.user_id = b.user_id
+                   and n.status = 'building'
+                   and (n.created_at, n.id) > (b.created_at, b.id));
+
 -- At most one in-flight build per commitment owner: a second tab or a retry
--- can't start a second (paid) deploy. Keyed on user_id too, so a stray legacy
--- row another user attached to this commitment (possible under the old 008
--- policy) can't occupy the owner's slot. store.ts maps the 23505 to a refusal.
+-- can't start a second (paid) deploy. store.ts maps the 23505 to a refusal.
 -- Rebuilt every run so an index from an earlier draft can't survive.
 drop index if exists public.ai_builds_one_inflight_per_commitment;
 create unique index ai_builds_one_inflight_per_commitment
@@ -62,16 +103,19 @@ alter table public.ai_builds
   add constraint ai_builds_commitment_id_fkey
   foreign key (commitment_id) references public.commitments(id);
 
--- "live" means Vercel reported READY and gave a public address; a row can't
--- claim it without both. NOT VALID: legacy rows from the old pipeline (which
--- marked builds live on acceptance) are kept as they are; every new insert
--- and update is checked.
+-- "live" means Vercel reported READY and the app answered at its public
+-- address; a row can't claim it without a deployment id and an https URL.
+-- NOT VALID: legacy rows from the old pipeline (which marked builds live on
+-- acceptance) are kept as they are; every new insert and update is checked.
+-- The status page also refuses to show a row as live without both.
 alter table public.ai_builds drop constraint if exists ai_builds_live_has_deployment;
 alter table public.ai_builds
   add constraint ai_builds_live_has_deployment
-  check (status <> 'live' or (deployment_id is not null and deployment_url is not null)) not valid;
+  check (status <> 'live' or (pg_catalog.btrim(coalesce(deployment_id, '')) <> ''
+                              and coalesce(deployment_url, '') ~ '^https://[^[:space:]]+$')) not valid;
 
 -- Insert rules, race-free:
+--   * a new row starts as 'pending' or 'building';
 --   * the commitment must belong to the row's user (the service role bypasses
 --     RLS, so this is the database's own ownership check);
 --   * created_at / updated_at are the server clock;
@@ -90,6 +134,11 @@ set search_path = ''
 as $$
 begin
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('ai_builds:' || new.commitment_id::text));
+  -- A build starts at the beginning; live / failed are reached by update only.
+  if new.status not in ('pending', 'building') then
+    raise exception 'ai_builds_bad_initial_status: a build can''t be created as %', new.status
+      using errcode = 'P0001';
+  end if;
   if not exists (select 1 from public.commitments c
                   where c.id = new.commitment_id and c.user_id = new.user_id) then
     raise exception 'ai_builds_not_owner: the commitment does not belong to this build''s user'

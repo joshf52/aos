@@ -16,7 +16,18 @@ import type { BuildConfig, CompileInputs } from "./build-config";
 import { compile } from "./compile";
 import { deploy } from "./deploy";
 
-export type LoadedInputs = CompileInputs & { userId: string };
+export type LoadedInputs = CompileInputs & {
+  userId: string;
+  // Not compiler inputs — read by runBuild's eligibility guard.
+  eligibility: { buildMode: string | null; commitmentStatus: string };
+};
+
+/** A build that throws this was refused before anything was deployed. */
+export class BuildRefused extends Error {}
+
+// A "building" row older than this is treated as a crashed run (e.g. the
+// function hit its time limit mid-deploy) so it can't block retries forever.
+const STALE_BUILD_MS = 15 * 60_000;
 
 type CommitmentRow = Database["public"]["Tables"]["commitments"]["Row"];
 type LensRow = Database["public"]["Tables"]["decision_lenses"]["Row"];
@@ -73,6 +84,10 @@ export async function loadInputs(commitmentId: string): Promise<LoadedInputs> {
       id: commitment.id,
       created_at: commitment.created_at,
     },
+    eligibility: {
+      buildMode: profile.build_mode,
+      commitmentStatus: commitment.status,
+    },
   };
 }
 
@@ -83,15 +98,38 @@ export type BuildOutcome = {
   error: string | null;
 };
 
-/** Compile, deploy, and persist. Always returns; failure is a status, not a throw. */
+/**
+ * Compile, deploy, and persist. A deploy failure is a status, not a throw;
+ * a refused build (ineligible, or one already running) throws BuildRefused
+ * before anything reaches Vercel.
+ */
 export async function runBuild(commitmentId: string): Promise<BuildOutcome> {
   const supabase = createClient();
   const inputs = await loadInputs(commitmentId);
+
+  // Every deploy spends AOS's Vercel (and, in the generated app, Anthropic)
+  // budget, so only the non-builder path on a live commitment may start one.
+  if (inputs.eligibility.buildMode !== "ai") {
+    throw new BuildRefused("AI builds are only available when your build mode is “Build it for me”.");
+  }
+  if (inputs.eligibility.commitmentStatus !== "active") {
+    throw new BuildRefused("This commitment is no longer active, so it can't be built.");
+  }
+
   const config = compile(inputs);
 
-  // Reserve the row first so the user can see "building…" even if the deploy hangs.
+  // Expire a crashed run so the one-in-flight index below doesn't block forever.
   // The (as any) casts mirror the codebase's pattern for newly-added tables —
   // the generated Database types haven't been refreshed.
+  await (supabase.from("ai_builds") as any)
+    .update({ status: "failed", error: "Timed out before the deploy finished.", updated_at: new Date().toISOString() })
+    .eq("commitment_id", commitmentId)
+    .eq("status", "building")
+    .lt("updated_at", new Date(Date.now() - STALE_BUILD_MS).toISOString());
+
+  // Reserve the row first so the user can see "building…" even if the deploy
+  // hangs. The partial unique index ai_builds_one_inflight_per_commitment
+  // makes this atomic: a second tab or a retry gets 23505 instead of a deploy.
   const { data: inserted, error: iErr } = await (supabase.from("ai_builds") as any)
     .insert({
       commitment_id: commitmentId,
@@ -101,6 +139,9 @@ export async function runBuild(commitmentId: string): Promise<BuildOutcome> {
     })
     .select("id")
     .single();
+  if (iErr?.code === "23505") {
+    throw new BuildRefused("A build is already running for this commitment.");
+  }
   if (iErr || !inserted) throw new Error(iErr?.message ?? "Could not record build.");
   const buildId = (inserted as { id: string }).id;
 

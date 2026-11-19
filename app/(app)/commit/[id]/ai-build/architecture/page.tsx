@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { loadInputs, runBuild } from "@/lib/ai-build/run";
+import { BuildRefused, loadInputs, runBuild } from "@/lib/ai-build/run";
 import { compile } from "@/lib/ai-build/compile";
 import { ArchitectureContent } from "./architecture-content";
 
@@ -39,9 +39,17 @@ async function updateLensAnswer(
 }
 
 /** Server action — kick off the deploy. Redirects to the live status page. */
-async function beginBuild(commitmentId: string): Promise<void> {
+async function beginBuild(commitmentId: string): Promise<{ error: string } | void> {
   "use server";
-  await runBuild(commitmentId);
+  try {
+    await runBuild(commitmentId);
+  } catch (e) {
+    // Refusals carry a message meant for the user; anything else stays generic.
+    if (e instanceof BuildRefused) return { error: e.message };
+    console.error("beginBuild failed", e);
+    return { error: "The build couldn't start. Try again in a moment." };
+  }
+  // Outside the try: redirect() works by throwing.
   redirect(`/commit/${commitmentId}/ai-build`);
 }
 
@@ -60,6 +68,10 @@ export default async function ArchitecturePage({
   } catch {
     redirect("/feed");
   }
+
+  // The plan only means something on the non-builder path; self-builders
+  // land on their sprint, mirroring the Ceremony's routing.
+  if (inputs.eligibility.buildMode !== "ai") redirect("/dashboard");
 
   const config = compile(inputs);
   const opportunityTitle = inputs.opportunity.title;

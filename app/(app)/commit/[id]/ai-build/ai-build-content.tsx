@@ -69,7 +69,7 @@ export function AIBuildContent({
   const phase = phaseOf(build);
   const activeStep = ACTIVE_STEP[phase];
   // Only an active deploy advances on its own. (The server shows a deploy
-  // stuck past STALE_BUILD_MS as failed, which ends the polling.)
+  // that Vercel reports failed, or that times out, as failed, which ends the polling.)
   const polling = phase === "building";
   const architectureHref = `/commit/${commitmentId}/ai-build/architecture`;
 

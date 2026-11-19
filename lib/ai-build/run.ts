@@ -1,21 +1,26 @@
 /**
  * Orchestrates a build run for a non-builder commitment.
  *
- *   loadInputs(commitmentId)  → CompileInputs
- *   runBuild(commitmentId)    → ai_builds row with deployment_url
+ *   loadInputs(commitmentId)  → CompileInputs, for the signed-in owner only
+ *   runBuild(commitmentId)    → starts a deploy and records it on ai_builds
  *
- * `runBuild` is the single entry point the architecture-card server action
- * calls. It compiles, deploys, and persists state on ai_builds. Failures
- * surface as `status='failed'` with the error captured — the UI shows them
- * inline rather than crashing.
+ * Reads that decide eligibility use the user's own session (RLS applies);
+ * ai_builds writes use the server-only privileged client through store.ts,
+ * because users can't write that table at all (009). runBuild returns once
+ * Vercel has accepted the deployment; reconcile.ts follows it to READY or
+ * ERROR. Failures are recorded as status='failed' with a user-facing message.
  */
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import type { Database, Json } from "@/types/database";
 import type { BuildConfig, CompileInputs } from "./build-config";
 import { compile } from "./compile";
-import { deploy } from "./deploy";
-import { MAX_BUILDS_PER_COMMITMENT_PER_DAY, STALE_BUILD_MS } from "./limits";
+import { startDeploy, type DeployHooks, type StartedDeploy } from "./deploy";
+import { MAX_BUILDS_PER_COMMITMENT_PER_DAY } from "./limits";
+import { reconcileBuild } from "./reconcile";
+import { BuildInsertRefused, supabaseBuildStore, type BuildStore } from "./store";
+import { cancelDeployment, vercelScope } from "./vercel";
 
 export type LoadedInputs = CompileInputs & {
   userId: string;
@@ -49,7 +54,7 @@ export async function loadInputs(commitmentId: string): Promise<LoadedInputs> {
     { data: opp, error: oErr },
     { data: profile, error: pErr },
   ] = await Promise.all([
-    supabase.from("decision_lenses").select("*").eq("id", commitment.lens_id).single<LensRow>(),
+    supabase.from("decision_lenses").select("*").eq("id", commitment.lens_id).eq("user_id", user.id).single<LensRow>(),
     supabase.from("opportunities").select("*").eq("id", commitment.opportunity_id).single<OpportunityRow>(),
     supabase.from("profiles").select("*").eq("id", user.id).single<ProfileRow>(),
   ]);
@@ -90,19 +95,41 @@ export async function loadInputs(commitmentId: string): Promise<LoadedInputs> {
 
 export type BuildOutcome = {
   buildId: string;
-  url: string | null;
-  status: "live" | "failed";
+  /** "building" means Vercel accepted the deployment; it is not live yet. */
+  status: "building" | "failed";
   error: string | null;
 };
 
-/**
- * Compile, deploy, and persist. A deploy failure is a status, not a throw;
- * a refused build (ineligible, or one already running) throws BuildRefused
- * before anything reaches Vercel.
- */
+export type BuildDeps = {
+  startDeploy: (config: BuildConfig, hooks: DeployHooks) => Promise<StartedDeploy>;
+  cancel: (deploymentId: string) => Promise<void>;
+};
+
+const defaultDeps: BuildDeps = {
+  startDeploy,
+  cancel: async (id) => cancelDeployment(vercelScope(), id),
+};
+
+const CAP_MESSAGE = `This plan has been built ${MAX_BUILDS_PER_COMMITMENT_PER_DAY} times in the last 24 hours. Try again tomorrow.`;
+const START_FAILED = "The deploy couldn't start. Try again in a moment.";
+
+/** The server action's entry point. */
 export async function runBuild(commitmentId: string): Promise<BuildOutcome> {
-  const supabase = createClient();
   const inputs = await loadInputs(commitmentId);
+  const store = supabaseBuildStore(createServiceClient(), inputs.userId);
+  return executeBuild(inputs, store);
+}
+
+/**
+ * Everything after authentication, with the store and Vercel calls injectable
+ * so the failure paths can be exercised without live services.
+ */
+export async function executeBuild(
+  inputs: LoadedInputs,
+  store: BuildStore,
+  deps: BuildDeps = defaultDeps,
+): Promise<BuildOutcome> {
+  const commitmentId = inputs.commitment.id;
 
   // Every deploy spends AOS's Vercel (and, in the generated app, Anthropic)
   // budget, so only the non-builder path on a live commitment may start one.
@@ -113,74 +140,70 @@ export async function runBuild(commitmentId: string): Promise<BuildOutcome> {
     throw new BuildRefused("This commitment is no longer active, so it can't be built.");
   }
 
-  // Daily cap. created_at can't be edited and rows can't be deleted by users
-  // (009 grants), so this count can't be reset from the client.
-  const { count: recent, error: cntErr } = await (supabase.from("ai_builds") as any)
-    .select("id", { count: "exact", head: true })
-    .eq("commitment_id", commitmentId)
-    .gte("created_at", new Date(Date.now() - 24 * 60 * 60_000).toISOString());
-  if (cntErr) throw new Error(cntErr.message);
-  if ((recent ?? 0) >= MAX_BUILDS_PER_COMMITMENT_PER_DAY) {
-    throw new BuildRefused(
-      `This plan has been built ${MAX_BUILDS_PER_COMMITMENT_PER_DAY} times in the last 24 hours. Try again tomorrow.`,
-    );
+  // A build already in flight: bring it up to date first. Only one that is
+  // genuinely still deploying blocks a new one; a dead one is recorded failed.
+  const inflight = await store.latestInflight(commitmentId);
+  if (inflight) {
+    const now = await reconcileBuild(store, inflight);
+    if (now.status === "building") throw new BuildRefused("A build is already running for this commitment.");
+  }
+
+  if ((await store.countSince(commitmentId, new Date(Date.now() - 24 * 60 * 60_000).toISOString())) >= MAX_BUILDS_PER_COMMITMENT_PER_DAY) {
+    throw new BuildRefused(CAP_MESSAGE);
   }
 
   const config = compile(inputs);
 
-  // Expire a crashed run so the one-in-flight index below doesn't block forever.
-  // The (as any) casts mirror the codebase's pattern for newly-added tables —
-  // the generated Database types haven't been refreshed.
-  await (supabase.from("ai_builds") as any)
-    .update({ status: "failed", error: "Timed out before the deploy finished.", updated_at: new Date().toISOString() })
-    .eq("commitment_id", commitmentId)
-    .eq("status", "building")
-    .lt("updated_at", new Date(Date.now() - STALE_BUILD_MS).toISOString());
-
-  // Reserve the row first so the user can see "building…" even if the deploy
-  // hangs. The partial unique index ai_builds_one_inflight_per_commitment
-  // makes this atomic: a second tab or a retry gets 23505 instead of a deploy.
-  const { data: inserted, error: iErr } = await (supabase.from("ai_builds") as any)
-    .insert({
-      commitment_id: commitmentId,
-      user_id: inputs.userId,
-      status: "building",
-      build_config: config as unknown as Json,
-    })
-    .select("id")
-    .single();
-  if (iErr?.code === "23505") {
-    throw new BuildRefused("A build is already running for this commitment.");
-  }
-  // The database enforces the daily cap too (009 trigger), closing the gap
-  // between the count above and this insert.
-  if (iErr?.code === "P0001" && /ai_builds_daily_cap/.test(iErr.message ?? "")) {
-    throw new BuildRefused(
-      `This plan has been built ${MAX_BUILDS_PER_COMMITMENT_PER_DAY} times in the last 24 hours. Try again tomorrow.`,
-    );
-  }
-  if (iErr || !inserted) throw new Error(iErr?.message ?? "Could not record build.");
-  const buildId = (inserted as { id: string }).id;
-
+  // Reserve the row first. The database refuses a second in-flight row
+  // (unique index), a sixth build in 24 h (trigger, race-free) and a row for
+  // someone else's commitment (trigger) — the last can't happen here because
+  // loadInputs read the commitment as its owner, but the privileged client
+  // bypasses RLS, so the database checks again.
+  let row;
   try {
-    const result = await deploy(config);
-    await (supabase.from("ai_builds") as any)
-      .update({
-        status: "live",
-        deployment_url: result.url,
-        deployment_id: result.deploymentId,
-        project_name: result.projectName,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", buildId);
-    return { buildId, url: result.url, status: "live", error: null };
+    row = await store.insertBuilding(commitmentId, config as unknown as Json);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown deployment error.";
-    await (supabase.from("ai_builds") as any)
-      .update({ status: "failed", error: msg, updated_at: new Date().toISOString() })
-      .eq("id", buildId);
-    return { buildId, url: null, status: "failed", error: msg };
+    if (e instanceof BuildInsertRefused) {
+      throw new BuildRefused(e.reason === "daily_cap" ? CAP_MESSAGE : e.message);
+    }
+    throw e;
   }
+
+  let started: StartedDeploy;
+  try {
+    started = await deps.startDeploy(config, {
+      onProject: async ({ projectName }) => {
+        await store.update(row.id, { project_name: projectName }, "building");
+      },
+    });
+  } catch (e) {
+    console.error(JSON.stringify({ event: "ai_build_start_failed", build: row.id, message: e instanceof Error ? e.message : String(e) }));
+    await store.update(row.id, { status: "failed", error: START_FAILED }, "building").catch((err) => {
+      // The row stays "building" with no deployment id; reconcile records it
+      // failed after START_STALE_MS. Never reported as live.
+      console.error(JSON.stringify({ event: "ai_build_persist_failed", build: row.id, message: String(err) }));
+    });
+    return { buildId: row.id, status: "failed", error: START_FAILED };
+  }
+
+  // The deployment exists now. If its id can't be recorded we can't track it
+  // to READY, so stop it rather than leave an untracked app running on AOS's key.
+  let saved = null;
+  try {
+    saved = await store.update(
+      row.id,
+      { deployment_id: started.deploymentId, project_name: started.projectName },
+      "building",
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ event: "ai_build_persist_failed", build: row.id, deployment: started.deploymentId, message: String(err) }));
+  }
+  if (!saved) {
+    await deps.cancel(started.deploymentId).catch(() => {});
+    await store.update(row.id, { status: "failed", error: START_FAILED }, "building").catch(() => {});
+    return { buildId: row.id, status: "failed", error: START_FAILED };
+  }
+  return { buildId: row.id, status: "building", error: null };
 }
 
 export function compileForPreview(inputs: CompileInputs): BuildConfig {

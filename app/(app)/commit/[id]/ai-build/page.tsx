@@ -2,7 +2,13 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { AIBuildContent } from "./ai-build-content";
 import { summarizeBuild } from "@/lib/ai-build/build-status";
+import { reconcileForDisplay } from "@/lib/ai-build/reconcile";
+import { supabaseBuildStore, type BuildRecord } from "@/lib/ai-build/store";
+import { createServiceClient } from "@/lib/supabase/service";
 import type { AiBuildStatus } from "@/types/database";
+
+// Every render may advance an in-flight build from Vercel's real state.
+export const dynamic = "force-dynamic";
 
 type CommitmentRow = {
   id: string;
@@ -18,14 +24,7 @@ type LensRow = {
   answer_5: string | null;
 };
 
-type AiBuildRow = {
-  id: string;
-  status: AiBuildStatus;
-  deployment_url: string | null;
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-};
+type AiBuildRow = BuildRecord & { status: AiBuildStatus };
 
 export default async function AIBuildPage({
   params,
@@ -58,13 +57,24 @@ export default async function AIBuildPage({
       .single()) as unknown as Promise<{ data: { title: string } | null }>,
     (supabase
       .from("ai_builds")
-      .select("id, status, deployment_url, error, created_at, updated_at")
+      .select("id, commitment_id, user_id, status, deployment_id, deployment_url, project_name, error, created_at, updated_at")
       .eq("commitment_id", commitment.id)
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()) as unknown as Promise<{ data: AiBuildRow | null }>,
   ]);
+
+  // The row was read as its owner (RLS). Advancing it is a privileged write,
+  // scoped to that same user; what's shown is what the database now holds.
+  let current: AiBuildRow | null = build;
+  if (build?.status === "building") {
+    try {
+      current = await reconcileForDisplay(supabaseBuildStore(createServiceClient(), user.id), build);
+    } catch (e) {
+      console.error(JSON.stringify({ event: "ai_build_reconcile_unavailable", message: e instanceof Error ? e.message : String(e) }));
+    }
+  }
 
   const answers: string[] = [
     lens?.answer_1 ?? "",
@@ -79,7 +89,7 @@ export default async function AIBuildPage({
       commitmentId={commitment.id}
       opportunityTitle={opp?.title ?? ""}
       answers={answers}
-      build={summarizeBuild(build)}
+      build={summarizeBuild(current)}
     />
   );
 }

@@ -6,6 +6,7 @@ import { config as kit } from "@/kit.config";
 export function WedgeForm() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -27,6 +28,7 @@ export function WedgeForm() {
       }
       const j = await res.json();
       setOutput(j.output ?? "");
+      setTruncated(j.truncated === true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -73,6 +75,11 @@ export function WedgeForm() {
           <pre className="font-serif text-[16px] leading-relaxed whitespace-pre-wrap text-ink-text bg-ink-surface border border-ink-border rounded-[14px] p-5">
             {output}
           </pre>
+          {truncated && (
+            <div className="text-[12px] text-ink-secondary">
+              The draft hit its length limit and may stop mid-sentence. Shorten the input and try again.
+            </div>
+          )}
         </div>
       )}
     </div>

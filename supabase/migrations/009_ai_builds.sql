@@ -72,6 +72,9 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Serialize inserts for the same commitment until commit, so two
+  -- concurrent inserts can't both count 4 and both land.
+  perform pg_advisory_xact_lock(hashtext('ai_builds:' || new.commitment_id::text));
   new.created_at := now();
   new.updated_at := now();
   if (select count(*) from public.ai_builds

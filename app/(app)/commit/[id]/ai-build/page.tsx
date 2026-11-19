@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { AIBuildContent } from "./ai-build-content";
+import { summarizeBuild } from "@/lib/ai-build/build-status";
 import type { AiBuildStatus } from "@/types/database";
 
 type CommitmentRow = {
@@ -23,6 +24,7 @@ type AiBuildRow = {
   deployment_url: string | null;
   error: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 export default async function AIBuildPage({
@@ -56,7 +58,7 @@ export default async function AIBuildPage({
       .single()) as unknown as Promise<{ data: { title: string } | null }>,
     (supabase
       .from("ai_builds")
-      .select("id, status, deployment_url, error, created_at")
+      .select("id, status, deployment_url, error, created_at, updated_at")
       .eq("commitment_id", commitment.id)
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
@@ -77,15 +79,7 @@ export default async function AIBuildPage({
       commitmentId={commitment.id}
       opportunityTitle={opp?.title ?? ""}
       answers={answers}
-      build={
-        build
-          ? {
-              status: build.status,
-              deploymentUrl: build.deployment_url,
-              error: build.error,
-            }
-          : null
-      }
+      build={summarizeBuild(build)}
     />
   );
 }

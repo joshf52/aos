@@ -68,16 +68,18 @@ export function AIBuildContent({
   const router = useRouter();
   const phase = phaseOf(build);
   const activeStep = ACTIVE_STEP[phase];
-  const inProgress = phase === "queued" || phase === "building";
+  // Only an active deploy advances on its own. (The server shows a deploy
+  // stuck past STALE_BUILD_MS as failed, which ends the polling.)
+  const polling = phase === "building";
   const architectureHref = `/commit/${commitmentId}/ai-build/architecture`;
 
   // While a build is in flight this page is the status view: re-fetch the
   // server component so the latest ai_builds row shows without a manual reload.
   useEffect(() => {
-    if (!inProgress) return;
+    if (!polling) return;
     const id = window.setInterval(() => router.refresh(), STATUS_POLL_MS);
     return () => window.clearInterval(id);
-  }, [inProgress, router]);
+  }, [polling, router]);
 
   const title = <span className="text-aos-gold">{opportunityTitle}</span>;
 
@@ -122,7 +124,7 @@ export function AIBuildContent({
               rewrite anything that doesn&apos;t sound like your idea, then hold to begin.
             </>
           ) : phase === "queued" ? (
-            <>You approved the plan for {title}. The deploy starts on its own, and this page updates when it&apos;s live.</>
+            <>You approved the plan for {title}. The live link appears here once the deploy finishes.</>
           ) : phase === "building" ? (
             <>We&apos;re deploying {title} now. This page checks in on its own, and the live link appears here.</>
           ) : phase === "live" ? (
@@ -177,11 +179,13 @@ export function AIBuildContent({
               <div className="text-[13px] text-aos-secondary">Live, but the link hasn&apos;t come through yet. Check again in a moment.</div>
             ) : (
               <div>
-                <div className="text-[10px] uppercase tracking-[0.16em] text-aos-tertiary">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-aos-secondary">
                   {phase === "queued" ? "Queued" : "Deploying"}
                 </div>
                 <p className="text-[13px] text-aos-secondary mt-1 leading-snug">
-                  Plan approved. This page checks the build every 15 seconds.
+                  {phase === "building"
+                    ? "Plan approved. This page checks the build every 15 seconds."
+                    : "Plan approved. Check the build status below for the latest."}
                 </p>
               </div>
             )}

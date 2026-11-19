@@ -15,6 +15,7 @@ import type { Database, Json } from "@/types/database";
 import type { BuildConfig, CompileInputs } from "./build-config";
 import { compile } from "./compile";
 import { deploy } from "./deploy";
+import { MAX_BUILDS_PER_COMMITMENT_PER_DAY, STALE_BUILD_MS } from "./limits";
 
 export type LoadedInputs = CompileInputs & {
   userId: string;
@@ -24,10 +25,6 @@ export type LoadedInputs = CompileInputs & {
 
 /** A build that throws this was refused before anything was deployed. */
 export class BuildRefused extends Error {}
-
-// A "building" row older than this is treated as a crashed run (e.g. the
-// function hit its time limit mid-deploy) so it can't block retries forever.
-const STALE_BUILD_MS = 15 * 60_000;
 
 type CommitmentRow = Database["public"]["Tables"]["commitments"]["Row"];
 type LensRow = Database["public"]["Tables"]["decision_lenses"]["Row"];
@@ -114,6 +111,19 @@ export async function runBuild(commitmentId: string): Promise<BuildOutcome> {
   }
   if (inputs.eligibility.commitmentStatus !== "active") {
     throw new BuildRefused("This commitment is no longer active, so it can't be built.");
+  }
+
+  // Daily cap. created_at can't be edited and rows can't be deleted by users
+  // (009 grants), so this count can't be reset from the client.
+  const { count: recent, error: cntErr } = await (supabase.from("ai_builds") as any)
+    .select("id", { count: "exact", head: true })
+    .eq("commitment_id", commitmentId)
+    .gte("created_at", new Date(Date.now() - 24 * 60 * 60_000).toISOString());
+  if (cntErr) throw new Error(cntErr.message);
+  if ((recent ?? 0) >= MAX_BUILDS_PER_COMMITMENT_PER_DAY) {
+    throw new BuildRefused(
+      `This plan has been built ${MAX_BUILDS_PER_COMMITMENT_PER_DAY} times in the last 24 hours. Try again tomorrow.`,
+    );
   }
 
   const config = compile(inputs);

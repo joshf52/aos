@@ -34,7 +34,10 @@ function projectNameFor(config: BuildConfig): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40) || "build";
-  const stamp = config.meta.commitmentId.slice(0, 8);
+  // The whole commitment id (32 hex chars), not a prefix: two commitments for
+  // the same opportunity must never share a Vercel project and its production
+  // alias. "aos-" + 40 + "-" + 32 = at most 77 chars.
+  const stamp = config.meta.commitmentId.toLowerCase().replace(/[^a-z0-9]/g, "");
   return `aos-${base}-${stamp}`;
 }
 

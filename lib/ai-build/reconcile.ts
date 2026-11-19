@@ -54,9 +54,9 @@ function belongsTo(d: Deployment, row: BuildRecord): boolean {
  * of this build? The app reports Vercel's own VERCEL_DEPLOYMENT_ID, so a
  * redeploy that inherited the project's AOS_BUILD_ID can't answer for it.
  */
-async function servesDeployment(url: string, buildId: string, deploymentId: string): Promise<boolean> {
+async function servesDeployment(url: string, buildId: string, deploymentId: string, timeoutMs = 8_000): Promise<boolean> {
   try {
-    const res = await fetch(`${url}/api/health`, { redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    const res = await fetch(`${url}/api/health`, { redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
     if (res.status !== 200) return false;
     const body = (await res.json()) as { build?: unknown; deployment?: unknown };
     return body.build === buildId && body.deployment === deploymentId;
@@ -70,7 +70,7 @@ export type ReconcileDeps = {
   scope?: VercelScope;
   /** Epoch ms: Vercel calls made by this check finish by then (the cron's budget). */
   deadline?: number;
-  probe?: (url: string, buildId: string, deploymentId: string) => Promise<boolean>;
+  probe?: (url: string, buildId: string, deploymentId: string, timeoutMs?: number) => Promise<boolean>;
 };
 
 export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: ReconcileDeps = {}): Promise<BuildRecord> {
@@ -145,7 +145,10 @@ export async function reconcileBuild(store: BuildStore, row: BuildRecord, opts: 
 
   if (d.readyState === "READY") {
     const url = publicUrl(d);
-    if (url && (await probe(url, row.id, d.id))) {
+    // Inside the caller's budget: a probe that can't fit is skipped (the row
+    // stays building and is checked again next time), never left half-done.
+    const probeMs = opts.deadline ? Math.min(8_000, opts.deadline - Date.now()) : 8_000;
+    if (url && probeMs >= 1_000 && (await probe(url, row.id, d.id, probeMs))) {
       const saved = await store.update(
         row.id,
         { status: "live", deployment_url: url, error: null, verified_at: new Date().toISOString() },

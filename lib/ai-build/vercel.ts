@@ -197,12 +197,16 @@ export async function upsertEnv(scope: VercelScope, projectId: string, vars: Env
  * verification later.
  */
 export async function ensureSystemEnvs(scope: VercelScope, projectId: string, deadline?: number): Promise<void> {
-  const p = await vercel<{ autoExposeSystemEnvs?: boolean }>(scope, `/v9/projects/${encodeURIComponent(projectId)}`, {
-    method: "PATCH",
-    json: { autoExposeSystemEnvs: true },
-    deadline,
-  });
+  const path = `/v9/projects/${encodeURIComponent(projectId)}`;
+  let p = await vercel<{ autoExposeSystemEnvs?: boolean }>(scope, path, { method: "PATCH", json: { autoExposeSystemEnvs: true }, deadline });
+  // The field is optional in the PATCH response; confirm with a read if absent.
+  if (p.autoExposeSystemEnvs === undefined) p = await vercel<{ autoExposeSystemEnvs?: boolean }>(scope, path, { deadline });
   if (p.autoExposeSystemEnvs !== true) throw new Error("Vercel did not enable system environment variables on the project.");
+}
+
+/** Vercel deployment ids look like dpl_<alphanumerics>. */
+export function isDeploymentId(id: unknown): id is string {
+  return typeof id === "string" && /^dpl_[A-Za-z0-9]{1,64}$/.test(id);
 }
 
 // ---- deployments --------------------------------------------------------------

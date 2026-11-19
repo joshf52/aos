@@ -17,7 +17,7 @@ Tracked tasks deferred for later. Pick up the next item by feeding it back to Cl
 
 ### AI Build — activation (required before the non-builder path goes live)
 **When:** before any non-builder presses "Begin build" on production.
-**State (2026-11-19):** the code is ready for a live test; the live test itself has not run (it needs the credentials and approvals below). Everything is verified offline: real Postgres 18 for the migration, rollback, privileges and races; a stateful fake of the Vercel API (and the generated app's public health answer) for every deploy path; a built generated app against a local mock of the Messages API and the limiter. Three rounds of independent review (Codex); confirmed findings fixed, the rest listed under "Still open".
+**State (2026-11-19):** the code is ready for a live test; the live test itself has not run (it needs the credentials and approvals below). Everything is verified offline: real Postgres 18 for the migration, rollback, privileges and races; a stateful fake of the Vercel API (and the generated app's public health answer) for every deploy path; a built generated app against a local mock of the Messages API and the limiter. Four rounds of independent review (Codex); confirmed findings fixed, accepted risks listed under "Still open". The final round's verdict: proceed with a supervised isolated live test; hold production activation until the live test confirms the real Vercel responses.
 
 **Hosted DB state (read-only anon probe, re-checked 2026-11-19, project `rkvvkocerzygdlimvxvy`):** 001–006 and 008 (opportunity discovery) are applied; **007 is not** (`opportunities.market_hint` missing — no code reads it yet); **`ai_builds` exists with the old Windows column set** (old `008_ai_builds.sql`, users write their own rows). 007 and 009 don't depend on each other; both orders were tested on that exact starting state.
 
@@ -35,7 +35,8 @@ Tracked tasks deferred for later. Pick up the next item by feeding it back to Cl
 
 **Step 2 — production activation (after PR #8 is accepted and merged):**
 1. Run `supabase/manual/verify_ai_builds.sql` on the hosted DB (read-only) and keep the output. It shows what 009 will do to legacy rows: older duplicate in-flight rows are marked failed; rows attached to someone else's commitment move to `ai_builds_quarantine`; raw provider error text from the old pipeline moves there too (the row keeps a generic message); legacy "live" rows stay as history and won't display as live.
-2. Apply `009_ai_builds.sql` (idempotent, one transaction, nothing lost). Re-run verify: `state` = `current`. To undo: `supabase/manual/rollback_009_ai_builds.sql` (restores the old shape, the quarantined rows and the original error text; anything whose user or commitment has since been deleted stays in the kept quarantine table; this branch's code keeps working either way). Don't run the fresh-project grants script on the hosted DB.
+Before the hosted run, rehearse on a copy: restore a recent backup of the hosted DB into a scratch Supabase project on the same Postgres major version, run verify → 009 → verify → rollback → 009 there, including a build row already marked live.
+2. Apply `009_ai_builds.sql` (idempotent, one transaction, nothing lost). Re-run verify: `state` = `current`. To undo: `supabase/manual/rollback_009_ai_builds.sql` (restores the old shape and the quarantined rows; raw provider error text stays archived, and the attestation columns `verified_at` / `deployment_id` / `deployment_url` stay server-only; anything whose user or commitment has since been deleted stays in the kept quarantine table; this branch's code keeps working either way). Don't run the fresh-project grants script on the hosted DB.
 3. Apply `007_opportunity_context.sql`.
 4. On the AOS Vercel production project set `SUPABASE_SECRET_KEY`, `AI_BUILD_VERCEL_TOKEN`, `AI_BUILD_VERCEL_TEAM_ID`, `AI_BUILD_ANTHROPIC_KEY`, `AI_BUILD_KIT_SUPABASE_URL`, `AI_BUILD_KIT_SUPABASE_ANON_KEY`, `AI_BUILD_KIT_SUPABASE_SECRET_KEY` (production values, production workspace spend limit). `CRON_SECRET` is already required by the existing cron.
 5. On a Vercel Pro plan, change `/api/cron/ai-builds` in `vercel.json` from daily to hourly (Hobby allows only daily crons; a more frequent one fails the deploy).
@@ -48,7 +49,10 @@ Tracked tasks deferred for later. Pick up the next item by feeding it back to Cl
 - "Live" is verified once, when recorded. If an alias is later removed, protected or reassigned on Vercel, the page keeps showing the recorded live state.
 - Deleting an account removes its `ai_builds` rows, so its Vercel project is no longer tracked. Its apps keep serving, still bounded by the limiter and the workspace spend limit.
 - The cron is daily on Hobby, so a build nobody watches can take up to a day to be marked live or failed. Hourly on Pro is better (step 5).
-- `retry_after` across a midnight boundary with a window longer than the time left in the day isn't covered by a test (the logic takes the latest reset of the exhausted buckets).
+- `retry_after` across a midnight boundary was checked by the reviewer with a fixed clock (460 s returned for a 700 s window at 23:59 UTC), not by a repo test.
+- Accepted for now: "live" uses `<project>.vercel.app` only (AOS creates these projects and never adds custom domains); project identity is checked by name, build tag and the dedicated team, not a stored project id; logged provider codes are any letters-and-underscores value, not a closed list.
+- The live script calls `executeBuild` directly; the signed-in path (hold-to-approve → status page) is exercised separately in a headless browser against the same test project.
+- First things the live test must confirm: the real `PATCH /v9/projects` response, that `/api/health` returns both ids (VERCEL_DEPLOYMENT_ID exposed), and that `<project>.vercel.app` is publicly reachable without Vercel Authentication.
 - Different deployed app versions pass their own caps to the shared limiter; the all-apps cap is whatever each app was built with.
 
 ### Resend webhook — manual setup

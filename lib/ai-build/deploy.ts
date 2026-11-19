@@ -22,6 +22,7 @@ import {
   createDeployment,
   ensureProject,
   ensureSystemEnvs,
+  isDeploymentId,
   upsertEnv,
   uploadFile,
   vercelScope,
@@ -149,11 +150,14 @@ export async function startDeploy(config: BuildConfig, opts: DeployOptions): Pro
     try {
       d = await createDeployment(scope, project, uploaded, opts.buildId, opts.deadline);
     } catch (e) {
-      // No answer, a 5xx, or a 2xx we couldn't read: Vercel may have created it.
-      const mayExist = e instanceof VercelError ? e.ambiguous || e.code === "bad_json" : true;
+      // No answer, a 5xx, or a 2xx we couldn't read (status -2, set only by
+      // our own parser): Vercel may have created it.
+      const mayExist = e instanceof VercelError ? e.ambiguous || e.status === -2 : true;
       throw new StartError(e instanceof Error ? e.message : String(e), mayExist);
     }
-    if (!d?.id) throw new StartError("Vercel accepted the deployment but returned no id.", true);
+    // A 2xx without a usable id: it may exist; let reconcile find it by tag
+    // rather than store something that isn't a deployment id.
+    if (!isDeploymentId(d?.id)) throw new StartError("Vercel accepted the deployment but returned no usable id.", true);
     return { projectId: project.id, projectName: project.name, deploymentId: d.id, readyState: d.readyState };
   } catch (e) {
     if (e instanceof StartError) throw e;

@@ -35,9 +35,11 @@ alter table public.ai_builds
 -- the table is then kept. Rows 009 marked 'failed' as superseded duplicates
 -- stay failed: their deployments were never tracked.
 --
--- verified_at is kept but never user-writable: the page treats it as the
--- server's attestation, so users get UPDATE on every column except it. That
--- is the one deliberate difference from the old grants.
+-- verified_at, deployment_id and deployment_url are kept but never
+-- user-writable: together they are the server's attestation that an app was
+-- checked live at that address, and the page trusts them. Users get INSERT /
+-- UPDATE on every other column. That is the one deliberate difference from
+-- the old grants (this branch's code writes with the service role anyway).
 do $$
 begin
   if to_regclass('public.ai_builds_quarantine') is not null then
@@ -51,6 +53,15 @@ begin
     insert into public.ai_builds
       select (pg_catalog.jsonb_populate_record(null::public.ai_builds, r.row_data)).* from restorable r
       on conflict (id) do nothing;
+    -- A restored row's raw provider error stays archived; the row gets the
+    -- generic message (its owner can read the row).
+    insert into public.ai_builds_quarantine (reason, row_data)
+      select 'legacy error text (replaced on the row)', pg_catalog.jsonb_build_object('id', b.id, 'error', b.error)
+      from public.ai_builds b
+      where b.error is not null and b.error not in ('The deploy couldn''t start. Try again in a moment.', 'The deploy failed. Try again, or change the plan first.', 'The deploy was cancelled.', 'The deploy took too long and was stopped.', 'The deploy took too long.', 'The deploy couldn''t be confirmed.', 'The deploy is gone.', 'The deploy couldn''t be matched to this build.', 'The app built, but its address couldn''t be assigned.', 'The build stopped before the deploy started.', 'Superseded by a newer build.');
+    update public.ai_builds b
+      set error = 'The deploy failed. Try again, or change the plan first.'
+      where b.error is not null and b.error not in ('The deploy couldn''t start. Try again in a moment.', 'The deploy failed. Try again, or change the plan first.', 'The deploy was cancelled.', 'The deploy took too long and was stopped.', 'The deploy took too long.', 'The deploy couldn''t be confirmed.', 'The deploy is gone.', 'The deploy couldn''t be matched to this build.', 'The app built, but its address couldn''t be assigned.', 'The build stopped before the deploy started.', 'Superseded by a newer build.');
 
 
     if not exists (select 1 from public.ai_builds_quarantine) then
@@ -68,12 +79,12 @@ create policy "Users manage their own ai_builds"
   using (auth.uid() = user_id);
 
 -- The old file relied on Supabase's default grants (all privileges to the API
--- roles), except that verified_at stays server-only (see above).
+-- roles), except that the attestation columns stay server-only (see above).
 revoke all on public.ai_builds from anon, authenticated;
 grant select, delete on public.ai_builds to anon, authenticated;
-grant insert (id, created_at, updated_at, commitment_id, user_id, status, build_config, project_name, deployment_id, deployment_url, error, edit_count)
+grant insert (id, created_at, updated_at, commitment_id, user_id, status, build_config, project_name, error, edit_count)
   on public.ai_builds to anon, authenticated;
-grant update (id, created_at, updated_at, commitment_id, user_id, status, build_config, project_name, deployment_id, deployment_url, error, edit_count)
+grant update (id, created_at, updated_at, commitment_id, user_id, status, build_config, project_name, error, edit_count)
   on public.ai_builds to anon, authenticated;
 grant all on public.ai_builds to service_role;
 

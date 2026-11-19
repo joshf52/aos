@@ -58,7 +58,10 @@ select
                      and not g.tgisinternal and g.tgenabled in ('O', 'A') and g.tgtype = 19
                      and g.tgfoid = to_regprocedure('public.ai_builds_before_update()')
                      and f.prosrc like '%ai_builds_immutable%' and f.prosrc like '%ai_builds_bad_transition%'
-                     and f.prosrc like '%old.status = ''live''%')
+                     and f.prosrc like '%old.status = ''live''%'
+                     and f.prosrc like '%new.deployment_id is distinct from old.deployment_id%'
+                     and f.prosrc like '%new.deployment_url is distinct from old.deployment_url%'
+                     and f.prosrc like '%new.verified_at is distinct from old.verified_at%')
      -- conenforced exists from PostgreSQL 18; read it via jsonb so older
      -- servers (Supabase runs 15/17) don't error.
      and exists (select 1 from pg_constraint c where c.conrelid = (select oid from t)

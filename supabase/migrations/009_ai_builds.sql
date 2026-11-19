@@ -24,6 +24,15 @@ create index ai_builds_user_idx       on public.ai_builds (user_id);
 
 alter table public.ai_builds enable row level security;
 
+-- WITH CHECK also pins commitment_id to one of the caller's own commitments,
+-- so a user cannot attach build rows to someone else's commitment.
 create policy "Users manage their own ai_builds"
   on public.ai_builds for all
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.commitments c
+      where c.id = commitment_id and c.user_id = auth.uid()
+    )
+  );

@@ -412,7 +412,8 @@ Non-visual:
 - **Vercel Node version:** decide whether to pin Node 24+ so `min-release-age` is enforced in CI/Vercel builds (see Supply-chain posture).
 - **Honesty-gate structural-enforcement question** (noted, not refactored): the gate's load-bearing layer is Zod-at-parse-time (`lib/opportunity-engine/schema.ts`); the API wire schema is stripped of min-constraints by the SDK, and the DB checks only the verdict enum. Open question whether more of the gate belongs in the DB/API layers.
 - **Opportunity detail and feed CTAs don't branch on `build_mode`** — `app/(app)/opportunity/[slug]/page.tsx` hardcodes "Evaluate this opportunity" and `app/(app)/feed/page.tsx` has no non-builder CTA; the onboarding spec calls for a "Have AI build this" variant. Content/logic drift, not styling — do not fix on a visual branch.
-- **AI build migration renumbered:** `ai_builds` was `008_ai_builds.sql` on the Windows branch and is now `009_ai_builds.sql` (the remote's `008_opportunity_discovery.sql` kept its number). If the live DB already has `ai_builds` from the old file, skip 009 rather than re-running it.
+- **AI build migration renumbered:** `ai_builds` was `008_ai_builds.sql` on the Windows branch and is now `009_ai_builds.sql` (the remote's `008_opportunity_discovery.sql` kept its number). If the live DB already has `ai_builds` from the old file, don't re-run 009; replace only its policy (see FOLLOWUPS.md → AI Build activation).
+- **AI build activation blockers** — retired model in the generated app, unverified Vercel env payload, missing spend guards, `live` before READY. Listed in FOLLOWUPS.md → AI Build activation.
 
 ---
 

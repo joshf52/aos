@@ -19,11 +19,15 @@ Tracked tasks deferred for later. Pick up the next item by feeding it back to Cl
 **When:** before any non-builder presses "Begin build" on production.
 **Why deferred:** The compile → materialize → deploy pipeline is verified offline (fixture compile, mocked Vercel API, local `next build` of a generated kit). A real Vercel deploy has never run.
 **Steps:**
-1. Apply `009_ai_builds.sql` in the Supabase SQL editor. It was `008_ai_builds.sql` on the old Windows branch: if `public.ai_builds` already exists in the live DB, skip it (the file is not idempotent).
+1. Apply `009_ai_builds.sql` in the Supabase SQL editor. It was `008_ai_builds.sql` on the old Windows branch. If `public.ai_builds` already exists in the live DB, don't re-run the file (it is not idempotent); instead `drop policy "Users manage their own ai_builds" on public.ai_builds;` and re-run only the `create policy` statement from 009, which now has a WITH CHECK the old file lacked.
 2. Set `VERCEL_TOKEN` (+ `VERCEL_TEAM_ID` if deploying into a team), and `AI_BUILD_ANTHROPIC_KEY` so generated apps can call Claude. Without the key the generated `/api/wedge` returns 503.
-3. Run one real build against a test commitment and confirm Vercel accepts the `/v13/deployments` body — in particular the `env` array shape, which is unverified against the live API.
-4. Decide the generated app's model: `starter-kit/app/api/wedge/route.ts` still calls `claude-sonnet-4-20250514`.
-5. Note: `ai_builds.status` flips to `live` when Vercel accepts the deployment, not when it reaches READY; the first visit may hit a still-building URL.
+3. **Blocker — model:** `starter-kit/app/api/wedge/route.ts` calls `claude-sonnet-4-20250514`, which Anthropic retired on 2026-06-15, so every generated app's workflow returns 502. Pick the replacement (cost decision: AOS pays per request) and check the kit's `@anthropic-ai/sdk` (^0.30.1) against it.
+4. **Blocker — env injection:** `deploy.ts` sends a top-level `env` array of project-variable records to `/v13/deployments`; an independent review found that field missing from Vercel's public schema. Likely fix: create the project, set env via the project env API, then deploy. Verify with one real build against a test commitment.
+5. **Before real users — spend guards:** `runBuild` checks commitment ownership only. Add: require `build_mode = 'ai'` and an active commitment, and refuse while a `building` row exists (two tabs can currently start two deploys on AOS's Vercel account).
+6. **Before real users — status truth:** `ai_builds.status` flips to `live` when Vercel *accepts* the deployment. A deployment that later ends in `ERROR` stays "live" with no retry link. Poll or webhook the deployment state to READY/ERROR.
+7. Lower priority: the Vercel project name uses only 8 chars of the commitment id (collision is unlikely but would share a production alias); `calc-in/number-out` and other non-text workflow shapes compile but the kit always renders the text form.
+
+Done in the reconciliation (verified): kit PostCSS fix (generated kit now builds), `ai_builds` WITH CHECK pins `commitment_id` to the caller's own commitments, kit `interested_users` has RLS with anon insert-only (verified in PGlite; previously anon could read/modify/delete all signups).
 
 ### Resend webhook — manual setup
 **When:** before launch.

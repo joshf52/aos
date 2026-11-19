@@ -1,10 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { config as kit } from "@/kit.config";
-import { admit, draft, LIMITS } from "@/lib/ai";
+import { admit, admitGlobal, draft, LIMITS, type Admission } from "@/lib/ai";
 
 export const runtime = "nodejs";
-// Room for the model call (LIMITS.timeoutMs) plus SDK retries on 429/5xx.
+// Room for the limiter (≤5 s) and one model call (LIMITS.timeoutMs, ≤55 s; no SDK retries).
 export const maxDuration = 60;
+
+// The limiter's per-app bucket: this app's commitment id.
+const appId = kit.meta.commitmentId.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 64) || "kit";
+
+function refused(a: Extract<Admission, { ok: false }>) {
+  const error =
+    a.reason === "unavailable"
+      ? "Drafting is paused right now. Try again in a minute."
+      : a.reason === "daily"
+        ? "Today's drafting limit is reached. Try again tomorrow."
+        : "Too many drafts in a short time. Try again in a few minutes.";
+  return NextResponse.json(
+    { error },
+    { status: a.reason === "unavailable" ? 503 : 429, headers: { "retry-after": String(a.retryAfterSeconds) } },
+  );
+}
 
 function clientKey(req: NextRequest): string {
   // Vercel sets x-forwarded-for; the first hop is the client.
@@ -29,18 +45,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Validation first, so malformed requests don't spend the visitor's quota.
-  const admission = admit(clientKey(req));
-  if (!admission.ok) {
-    return NextResponse.json(
-      {
-        error:
-          admission.reason === "daily"
-            ? "Today's drafting limit is reached. Try again tomorrow."
-            : "Too many drafts in a short time. Try again in a few minutes.",
-      },
-      { status: 429, headers: { "retry-after": String(admission.retryAfterSeconds) } },
-    );
-  }
+  // The per-instance check is cheap and keeps one instance from hammering the
+  // global limiter; the global one (shared across every instance) decides.
+  const key = clientKey(req);
+  const local = admit(key);
+  if (!local.ok) return refused(local);
+  const global = await admitGlobal(appId, key);
+  if (global && !global.ok) return refused(global);
 
   const prompt = kit.workflow.promptTemplate.replace("{input}", input);
   const result = await draft(kit.workflow.systemPrompt, prompt);

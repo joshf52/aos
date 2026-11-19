@@ -1,7 +1,9 @@
 // Single source of truth for how a generated app talks to Claude: model,
 // pricing used for cost logging, spend limits, and error mapping. Nothing else
 // in the kit names a model. Server-only — imported by API routes.
+import crypto from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Models this kit is allowed to run, with list prices (USD per million tokens)
@@ -41,25 +43,80 @@ function intFromEnv(name: string, fallback: number, min: number, max: number): n
 export const LIMITS = {
   maxInputChars: intFromEnv("AI_MAX_INPUT_CHARS", 6000, 200, 20000),
   maxOutputTokens: intFromEnv("AI_MAX_OUTPUT_TOKENS", 2000, 256, 8000),
-  // Per client IP, per server instance (best effort: serverless instances do
-  // not share memory). A hard ceiling belongs on the API key's workspace spend
-  // limit in the Claude Console.
+  // Request caps. With the kit Supabase configured these are enforced
+  // globally by kit_admit_ai (supabase/schema.sql) across every instance; the
+  // in-memory copies below are only a cheap first line per instance. Neither
+  // is a spend ceiling: that is the Anthropic workspace spend limit on the key.
   perIpPerWindow: intFromEnv("AI_RATE_LIMIT_PER_IP", 8, 1, 1000),
   windowMs: intFromEnv("AI_RATE_LIMIT_WINDOW_SECONDS", 600, 10, 86400) * 1000,
-  dailyRequestsPerInstance: intFromEnv("AI_DAILY_REQUEST_CAP", 500, 1, 100000),
+  // Per app per UTC day.
+  dailyRequestsPerApp: intFromEnv("AI_DAILY_REQUEST_CAP", 200, 1, 100000),
+  // Every app sharing the kit Supabase project, per UTC day.
+  dailyRequestsAllApps: intFromEnv("AI_GLOBAL_DAILY_REQUEST_CAP", 1000, 1, 1000000),
+  // AOS sets this on every generated app: no global answer, no Claude call.
+  requireGlobalLimit: process.env.AI_REQUIRE_GLOBAL_LIMIT === "1",
   // One attempt, no SDK retries: the route's maxDuration is 60 s, and a retry
   // after a long first attempt would be killed mid-flight with no JSON reply.
   // Upstream 429/529 go back to the browser with retry-after instead.
-  timeoutMs: intFromEnv("AI_TIMEOUT_SECONDS", 50, 5, 55) * 1000,
+  // At most 50 s, so the limiter (≤5 s) plus the call fit in maxDuration 60.
+  timeoutMs: intFromEnv("AI_TIMEOUT_SECONDS", 50, 5, 50) * 1000,
 } as const;
 
-// ---- rate limiting (in-memory, per instance) --------------------------------
+// ---- rate limiting -------------------------------------------------------------
+
+export type Admission =
+  | { ok: true }
+  | { ok: false; reason: "rate" | "daily" | "unavailable"; retryAfterSeconds: number };
+
+// Global: one atomic check in the shared kit Supabase project.
+
+let sb: SupabaseClient | null = null;
+
+/**
+ * Asks kit_admit_ai whether this request may call Claude. Returns null when
+ * the limiter isn't configured and isn't required (local dev). When it is
+ * required (every AOS-generated app), any failure to get an answer refuses
+ * the request: fail closed, because the alternative is unbounded spend.
+ */
+export async function admitGlobal(appId: string, clientKey: string): Promise<Admission | null> {
+  const unavailable: Admission = { ok: false, reason: "unavailable", retryAfterSeconds: 60 };
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return LIMITS.requireGlobalLimit ? unavailable : null;
+  sb ??= createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  // Raw IPs are never stored: the bucket key is a hash scoped to this app.
+  const client = crypto.createHash("sha256").update(`${appId}:${clientKey}`).digest("hex").slice(0, 32);
+  try {
+    const { data, error } = await sb
+      .rpc("kit_admit_ai", {
+        p_app: appId,
+        p_client: client,
+        p_client_cap: LIMITS.perIpPerWindow,
+        p_window_seconds: Math.round(LIMITS.windowMs / 1000),
+        p_app_daily_cap: LIMITS.dailyRequestsPerApp,
+        p_all_daily_cap: LIMITS.dailyRequestsAllApps,
+      })
+      .abortSignal(AbortSignal.timeout(5000));
+    const r = data as { ok?: boolean; reason?: string; retry_after?: number } | null;
+    if (error || !r || typeof r.ok !== "boolean") throw new Error(error?.message ?? "no answer");
+    if (r.ok) return { ok: true };
+    return {
+      ok: false,
+      reason: r.reason === "rate" ? "rate" : "daily",
+      retryAfterSeconds: Math.max(1, Number(r.retry_after) || 60),
+    };
+  } catch (e) {
+    console.error(JSON.stringify({ event: "ai_limiter_unavailable", required: LIMITS.requireGlobalLimit, message: e instanceof Error ? e.message : String(e) }));
+    return LIMITS.requireGlobalLimit ? unavailable : null;
+  }
+}
+
+// Local: in-memory, per server instance. A first line only — instances share
+// no memory, so these numbers bound one instance, not the app.
 
 const hits = new Map<string, number[]>();
 let day = new Date().toISOString().slice(0, 10);
 let dayCount = 0;
-
-export type Admission = { ok: true } | { ok: false; reason: "rate" | "daily"; retryAfterSeconds: number };
 
 export function admit(clientKey: string, now = Date.now()): Admission {
   const today = new Date(now).toISOString().slice(0, 10);
@@ -67,7 +124,7 @@ export function admit(clientKey: string, now = Date.now()): Admission {
     day = today;
     dayCount = 0;
   }
-  if (dayCount >= LIMITS.dailyRequestsPerInstance) {
+  if (dayCount >= LIMITS.dailyRequestsPerApp) {
     const tomorrow = Date.parse(`${today}T00:00:00.000Z`) + 86_400_000;
     return { ok: false, reason: "daily", retryAfterSeconds: Math.ceil((tomorrow - now) / 1000) };
   }

@@ -44,7 +44,7 @@ export default async function AIBuildPage({
 
   if (!commitment) redirect("/feed");
 
-  const [{ data: lens }, { data: opp }, { data: build }] = await Promise.all([
+  const [{ data: lens }, { data: opp }, { data: build, error: buildErr }] = await Promise.all([
     (supabase
       .from("decision_lenses")
       .select("answer_1, answer_2, answer_3, answer_4, answer_5")
@@ -62,8 +62,11 @@ export default async function AIBuildPage({
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(1)
-      .maybeSingle()) as unknown as Promise<{ data: AiBuildRow | null }>,
+      .maybeSingle()) as unknown as Promise<{ data: AiBuildRow | null; error: { message: string } | null }>,
   ]);
+  // A failed read is not "no builds yet": showing the approval screen would
+  // invite a second build. Let the error boundary offer a retry instead.
+  if (buildErr) throw new Error("Couldn't load the build status.");
 
   // The row was read as its owner (RLS). Advancing it is a privileged write,
   // scoped to that same user; what's shown is what the database now holds.

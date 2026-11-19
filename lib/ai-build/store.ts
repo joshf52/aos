@@ -38,12 +38,16 @@ export interface BuildStore {
   latestInflight(commitmentId: string): Promise<BuildRecord | null>;
   insertBuilding(commitmentId: string, buildConfig: Json): Promise<BuildRecord>;
   /**
-   * Conditional update: only applies while the row still has `expectStatus`
-   * (so two status checks racing can't both move it). Returns the row as the
-   * database now has it, or null if no row matched. Throws on a database error.
+   * Conditional update: only applies while the row still has the expected
+   * status — and, when given, the expected deployment id (null = none yet) —
+   * so a writer acting on a stale read can't overwrite newer progress.
+   * Returns the row as the database now has it, or null if no row matched.
+   * Throws on a database error.
    */
-  update(id: string, patch: BuildPatch, expectStatus: AiBuildStatus): Promise<BuildRecord | null>;
+  update(id: string, patch: BuildPatch, expect: Expect): Promise<BuildRecord | null>;
 }
+
+export type Expect = AiBuildStatus | { status: AiBuildStatus; deploymentId: string | null };
 
 const COLUMNS = "id, commitment_id, user_id, status, deployment_id, deployment_url, project_name, error, created_at, updated_at";
 
@@ -91,14 +95,13 @@ export function supabaseBuildStore(admin: SupabaseClient<Database>, userId: stri
       if (error || !data) throw new Error(`ai_builds insert failed: ${error?.message ?? "no row returned"}`);
       return data as BuildRecord;
     },
-    async update(id, patch, expectStatus) {
-      const { data, error } = await table()
-        .update(patch)
-        .eq("id", id)
-        .eq("user_id", userId)
-        .eq("status", expectStatus)
-        .select(COLUMNS)
-        .maybeSingle();
+    async update(id, patch, expect) {
+      const want = typeof expect === "string" ? { status: expect } : expect;
+      let q = table().update(patch).eq("id", id).eq("user_id", userId).eq("status", want.status);
+      if ("deploymentId" in want) {
+        q = want.deploymentId === null ? q.is("deployment_id", null) : q.eq("deployment_id", want.deploymentId);
+      }
+      const { data, error } = await q.select(COLUMNS).maybeSingle();
       if (error) throw new Error(`ai_builds update failed: ${error.message}`);
       return (data as BuildRecord | null) ?? null;
     },

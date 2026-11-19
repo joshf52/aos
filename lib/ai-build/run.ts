@@ -16,11 +16,11 @@ import { createServiceClient } from "@/lib/supabase/service";
 import type { Database, Json } from "@/types/database";
 import type { BuildConfig, CompileInputs } from "./build-config";
 import { compile } from "./compile";
-import { startDeploy, type DeployHooks, type StartedDeploy } from "./deploy";
+import { StartError, startDeploy, type DeployOptions, type StartedDeploy } from "./deploy";
 import { MAX_BUILDS_PER_COMMITMENT_PER_DAY } from "./limits";
 import { reconcileBuild } from "./reconcile";
 import { BuildInsertRefused, supabaseBuildStore, type BuildStore } from "./store";
-import { cancelDeployment, vercelScope } from "./vercel";
+import { cancelDeployment, vercelScope, type CancelResult } from "./vercel";
 
 export type LoadedInputs = CompileInputs & {
   userId: string;
@@ -101,14 +101,18 @@ export type BuildOutcome = {
 };
 
 export type BuildDeps = {
-  startDeploy: (config: BuildConfig, hooks: DeployHooks) => Promise<StartedDeploy>;
-  cancel: (deploymentId: string) => Promise<void>;
+  startDeploy: (config: BuildConfig, opts: DeployOptions) => Promise<StartedDeploy>;
+  cancel: (deploymentId: string) => Promise<CancelResult>;
 };
 
 const defaultDeps: BuildDeps = {
   startDeploy,
   cancel: async (id) => cancelDeployment(vercelScope(), id),
 };
+
+// Time the start may take, inside the server action's maxDuration (60 s on
+// the architecture route), leaving room to record the outcome.
+const START_BUDGET_MS = 45_000;
 
 const CAP_MESSAGE = `This plan has been built ${MAX_BUILDS_PER_COMMITMENT_PER_DAY} times in the last 24 hours. Try again tomorrow.`;
 const START_FAILED = "The deploy couldn't start. Try again in a moment.";
@@ -172,34 +176,48 @@ export async function executeBuild(
   let started: StartedDeploy;
   try {
     started = await deps.startDeploy(config, {
-      onProject: async ({ projectName }) => {
-        await store.update(row.id, { project_name: projectName }, "building");
-      },
+      buildId: row.id,
+      deadline: Date.now() + START_BUDGET_MS,
+      // Record the project before the deployment exists, so a lost create
+      // response can still be found (reconcile.ts looks it up by build id).
+      // If the row was taken over meanwhile, stop before deploying.
+      onProject: async ({ projectName }) =>
+        (await store.update(row.id, { project_name: projectName }, { status: "building", deploymentId: null })) !== null,
     });
   } catch (e) {
-    console.error(JSON.stringify({ event: "ai_build_start_failed", build: row.id, message: e instanceof Error ? e.message : String(e) }));
-    await store.update(row.id, { status: "failed", error: START_FAILED }, "building").catch((err) => {
+    const mayExist = e instanceof StartError && e.deploymentMayExist;
+    console.error(JSON.stringify({ event: "ai_build_start_failed", build: row.id, deploymentMayExist: mayExist, message: e instanceof Error ? e.message : String(e) }));
+    if (mayExist) {
+      // Vercel may have created it. Leave the row building: reconcile finds a
+      // tagged deployment and adopts it, or records the build failed after
+      // START_STALE_MS. Never reported as live without READY.
+      return { buildId: row.id, status: "building", error: null };
+    }
+    await store.update(row.id, { status: "failed", error: START_FAILED }, { status: "building", deploymentId: null }).catch((err) => {
       // The row stays "building" with no deployment id; reconcile records it
-      // failed after START_STALE_MS. Never reported as live.
+      // failed after START_STALE_MS.
       console.error(JSON.stringify({ event: "ai_build_persist_failed", build: row.id, message: String(err) }));
     });
     return { buildId: row.id, status: "failed", error: START_FAILED };
   }
 
   // The deployment exists now. If its id can't be recorded we can't track it
-  // to READY, so stop it rather than leave an untracked app running on AOS's key.
+  // to READY, so stop it rather than leave an untracked app on AOS's key. (If
+  // the stop fails too, the deployment's build-id tag lets reconcile adopt it
+  // while the row is building, or the cleanup cron cancel it once failed.)
   let saved = null;
   try {
     saved = await store.update(
       row.id,
       { deployment_id: started.deploymentId, project_name: started.projectName },
-      "building",
+      { status: "building", deploymentId: null },
     );
   } catch (err) {
     console.error(JSON.stringify({ event: "ai_build_persist_failed", build: row.id, deployment: started.deploymentId, message: String(err) }));
   }
   if (!saved) {
-    await deps.cancel(started.deploymentId).catch(() => {});
+    const cancel = await deps.cancel(started.deploymentId).catch(() => "failed" as const);
+    console.error(JSON.stringify({ event: "ai_build_untracked_deployment", build: row.id, deployment: started.deploymentId, cancel }));
     await store.update(row.id, { status: "failed", error: START_FAILED }, "building").catch(() => {});
     return { buildId: row.id, status: "failed", error: START_FAILED };
   }

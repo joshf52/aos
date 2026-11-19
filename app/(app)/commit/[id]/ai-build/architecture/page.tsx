@@ -5,6 +5,10 @@ import { BuildRefused, loadInputs, runBuild } from "@/lib/ai-build/run";
 import { compile } from "@/lib/ai-build/compile";
 import { ArchitectureContent } from "./architecture-content";
 
+// beginBuild uploads the kit and starts the deploy (budgeted at 45 s in
+// run.ts); give the action room beyond that to record the outcome.
+export const maxDuration = 60;
+
 /** Server action — rewrite one lens answer, then recompile on next render. */
 async function updateLensAnswer(
   commitmentId: string,

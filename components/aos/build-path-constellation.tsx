@@ -33,13 +33,22 @@ export function BuildPathConstellation({
   inputs = DEFAULT_INPUTS,
   modules = DEFAULT_MODULES,
   intensity = 1,
+  layout = "auto",
   className = "",
 }: {
   inputs?: string[];
   modules?: string[];
   intensity?: number;
+  /**
+   * "auto" goes three-column from the md breakpoint (wide containers like the
+   * landing page). "stacked" keeps the single-column arrangement at every
+   * width, for narrow containers where the md layout would squeeze the
+   * module cards into slivers (the AI build handoff's max-w-lg column).
+   */
+  layout?: "auto" | "stacked";
   className?: string;
 }) {
+  const stacked = layout === "stacked";
   const prefersReducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
@@ -60,10 +69,14 @@ export function BuildPathConstellation({
       ref={containerRef}
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
-      className={cn("relative grid md:grid-cols-[1fr_auto_1.4fr] gap-8 md:gap-4 items-center", className)}
+      className={cn(
+        "relative grid items-center",
+        stacked ? "gap-6" : "md:grid-cols-[1fr_auto_1.4fr] gap-8 md:gap-4",
+        className
+      )}
     >
       {/* Inputs — loose, hand-written feel */}
-      <div className="flex md:flex-col flex-wrap gap-3 justify-center md:justify-start">
+      <div className={cn("flex flex-wrap gap-3 justify-center", !stacked && "md:flex-col md:justify-start")}>
         {inputs.map((label, i) => (
           <motion.div
             key={label}
@@ -87,7 +100,7 @@ export function BuildPathConstellation({
       </div>
 
       {/* Convergence lines */}
-      <div className="hidden md:flex flex-col items-center justify-center gap-1.5 px-2" aria-hidden>
+      <div className={cn("hidden flex-col items-center justify-center gap-1.5 px-2", !stacked && "md:flex")} aria-hidden>
         {[0, 1, 2].map((i) => (
           <motion.div
             key={i}
@@ -106,7 +119,7 @@ export function BuildPathConstellation({
       </div>
 
       {/* Modules — structured grid, the "system" — small AOSDepthCards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+      <div className={cn("grid grid-cols-2 gap-2.5", !stacked && "sm:grid-cols-4")}>
         {modules.map((label, i) => (
           <motion.div
             key={label}

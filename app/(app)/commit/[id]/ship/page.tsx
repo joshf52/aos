@@ -39,8 +39,8 @@ async function markShipped(formData: FormData) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("events") as any).insert({
     user_id: user.id,
-    event_name: "commitment_shipped",
-    payload: { commitment_id: commitmentId, url, reflection },
+    event: "commitment_shipped",
+    properties: { commitment_id: commitmentId, url, reflection },
   });
 
   await recomputeReputation(supabase, user.id);

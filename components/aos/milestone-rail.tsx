@@ -3,6 +3,7 @@
 // TUNING KNOBS: `intensity` scales the active pulse + rail-fill glow opacity;
 // NODE_SIZE controls dot diameter; orientation="responsive" breaks to vertical
 // below the `md:` breakpoint — adjust those classes for a different cutoff.
+import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,11 @@ export function MilestoneRail({
   className?: string;
 }) {
   const prefersReducedMotion = useReducedMotion();
+  // useReducedMotion is null during SSR, so a reduced-motion client would drop
+  // the pop node the server rendered (React #418). Render it only after mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const showShipPop = mounted && !prefersReducedMotion;
 
   const isVertical = orientation === "vertical";
   const isResponsive = orientation === "responsive";
@@ -118,7 +124,7 @@ export function MilestoneRail({
                       style={{ width: NODE_SIZE * 0.65, height: NODE_SIZE * 0.65 }}
                     />
                   </div>
-                  {!prefersReducedMotion && (
+                  {showShipPop && (
                     <motion.div
                       key={`${step.label}-pop`}
                       initial={{ opacity: 0.9, scale: 1 }}

@@ -661,7 +661,7 @@ export function CeremonyContent({
                 }}
               >
                 {buildMode === "ai"
-                  ? "Your commitment is sealed. The AI will begin building within 24 hours."
+                  ? "Your commitment is sealed. Next, approve the plan the AI will build from it."
                   : "Your sprint begins now. Thirty days. One commitment. Build with conviction."}
               </div>
             </motion.div>
